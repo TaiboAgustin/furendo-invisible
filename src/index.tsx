@@ -6,8 +6,8 @@ import { interpretarCsv, limpiarDiscord, urlCsvDeGoogleSheet } from './importar.
 import { COOKIE_SESION, DURACION_SESION_SEG, contrasenaCorrecta, crearSesion, sesionValida } from './sesion.ts';
 import { sortear } from './sorteo.ts';
 import { avisar, contenidoSorteo } from './avisos.ts';
-import { buscarMiembro, completarRespuesta } from './discord.ts';
-import { embedCambio, embedPrueba, mailCambio, mailPrueba } from './mensajes.ts';
+import { buscarMiembro, completarRespuesta, mandarDM } from './discord.ts';
+import { embedCambio, embedPrueba, embedVinculado, mailCambio, mailPrueba } from './mensajes.ts';
 import { canales, configuracion } from './canales.ts';
 import { avisarRevelacion, revelarLoQueToca } from './revelacion.ts';
 import { firmaValida } from './firma.ts';
@@ -77,12 +77,13 @@ const AVISOS: Record<string, Aviso> = {
 
 async function paginaEvento(c: C, evento: Evento, aviso: Aviso | null, status: 200 | 400 | 409 = 200) {
   const revelado = evento.status === 'revelado' || evento.status === 'cerrado';
-  const [participantes, avisos, entregas, revelacion] = await Promise.all([
+  const [participantes, avisos, entregas, revelacion, pedidos] = await Promise.all([
     db.listarParticipantes(c.env.DB, evento.id),
     db.estadoAvisos(c.env.DB, evento.id),
     db.estadoEntregas(c.env.DB, evento.id),
     // Las parejas solo se leen para mostrarlas una vez revelado el evento.
     revelado ? db.estadoRevelacion(c.env.DB, evento.id) : null,
+    db.pedidosDeVinculo(c.env.DB, evento.id),
   ]);
   return c.html(
     <PaginaEvento
@@ -91,6 +92,7 @@ async function paginaEvento(c: C, evento: Evento, aviso: Aviso | null, status: 2
       avisos={avisos}
       entregas={entregas}
       revelacion={revelacion}
+      pedidos={pedidos}
       config={configuracion(c.env)}
       aviso={aviso}
     />,
@@ -157,6 +159,7 @@ app.post('/discord/interacciones', async (c) => {
     descargar: descargarAdjunto,
     participacion: (id) => db.participacionBot(c.env.DB, id),
     guardarDeseos: (id, deseos) => db.guardarDeseos(c.env.DB, id, deseos),
+    pedirVinculo: (u, mail) => db.pedirVinculo(c.env.DB, u, mail),
   });
 
   if (respuesta.type === 5) {
@@ -452,6 +455,36 @@ app.post('/eventos/:id/vincular', async (c) => {
   const partes = [`Vinculados: ${vinculados.length}.`];
   if (problemas.length) partes.push(`Revisá a ${problemas.join(', ')}.`);
   return paginaEvento(c, evento, { tipo: problemas.length ? 'error' : 'ok', texto: partes.join(' ') });
+});
+
+// ---------- Pedidos de /unirme mail:… ----------
+
+app.post('/eventos/:id/vinculos/:persona/confirmar', async (c) => {
+  const evento = await cargarEvento(c);
+  const personId = id(c, 'persona');
+  if (!evento || !personId) return c.notFound();
+  let discordId: string | null;
+  try {
+    discordId = await db.confirmarVinculo(c.env.DB, evento.id, personId);
+  } catch (e) {
+    const msg = mensajeDuplicado(e);
+    if (!msg) throw e;
+    return paginaEvento(c, evento, { tipo: 'error', texto: msg }, 409);
+  }
+  if (!discordId) return paginaEvento(c, evento, { tipo: 'error', texto: 'Ese pedido ya no estaba.' }, 409);
+
+  // Le confirmamos por privado. Si falla, el vínculo igual quedó hecho.
+  const token = c.env.DISCORD_BOT_TOKEN;
+  if (token) await mandarDM(token, discordId, embedVinculado(evento.name)).catch(() => {});
+  return paginaEvento(c, evento, { tipo: 'ok', texto: 'Cuenta vinculada.' });
+});
+
+app.post('/eventos/:id/vinculos/:persona/rechazar', async (c) => {
+  const evento = await cargarEvento(c);
+  const personId = id(c, 'persona');
+  if (!evento || !personId) return c.notFound();
+  await db.rechazarVinculo(c.env.DB, personId);
+  return paginaEvento(c, evento, { tipo: 'ok', texto: 'Pedido rechazado.' });
 });
 
 // ---------- Sorteo ----------

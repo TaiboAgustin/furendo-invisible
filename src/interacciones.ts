@@ -109,7 +109,11 @@ export type Deps = {
   /** El evento en armado o sorteado en el que participa, con su lista de deseos. */
   participacion(personaId: number): Promise<Participacion | null>;
   guardarDeseos(participacionId: number, deseos: string | null): Promise<void>;
+  /** Deja pendiente de confirmación el vínculo de esta cuenta con la persona de ese mail. */
+  pedirVinculo(usuario: UsuarioDiscord, mail: string): Promise<ResultadoPedido>;
 };
+
+export type ResultadoPedido = 'pedido' | 'ya-pedido' | 'no-existe' | 'ya-vinculado';
 
 export type Participacion = {
   id: number;
@@ -125,7 +129,7 @@ export type Participacion = {
 const AYUDA = [
   '**Cómo funciona Furendo Invisible**',
   '',
-  '`/unirme` — vincula tu cuenta (usalo en el server).',
+  '`/unirme` — vincula tu cuenta (usalo en el server). Si no te encuentra, `/unirme mail:` con el mail del formulario.',
   '`/mi-amigo` — te recuerda a quién le regalás y qué le gusta.',
   '`/deseos` — armá tu lista de deseos (`agregar`, `ver`, `borrar`). La ve quien te regala.',
   '`/preguntar` — le manda una pregunta a tu amigo invisible sin decir quién sos.',
@@ -223,13 +227,35 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
   if (comando === 'ayuda') return responder(AYUDA);
 
   const persona = await deps.persona(usuario);
-  if (!persona) return responder(NO_TE_CONOZCO(usuario.username));
 
   if (comando === 'unirme') {
+    if (persona) {
+      return responder(
+        `Listo, ${persona.name}: tu cuenta quedó vinculada. Cuando se haga el sorteo te escribo por privado.`,
+      );
+    }
+    const mail = opcion(i, 'mail').toLowerCase();
+    if (!mail) {
+      return responder(
+        `${NO_TE_CONOZCO(usuario.username)}\n\nSi en el formulario no pusiste tu usuario, probá con \`/unirme mail:\` y el mail que cargaste.`,
+      );
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return responder('Ese mail no parece válido. Revisalo y probá de nuevo.');
+    const r = await deps.pedirVinculo(usuario, mail);
+    if (r === 'no-existe') {
+      return responder('No encontré a nadie con ese mail en la lista. Fijate que sea el mismo que pusiste en el formulario.');
+    }
+    if (r === 'ya-vinculado') {
+      return responder('Ese mail ya está vinculado a otra cuenta de Discord. Si es tuyo, hablá con el organizador.');
+    }
     return responder(
-      `Listo, ${persona.name}: tu cuenta quedó vinculada. Cuando se haga el sorteo te escribo por privado.`,
+      r === 'ya-pedido'
+        ? 'Ya tenías un pedido hecho. Falta que el organizador lo confirme.'
+        : 'Listo, pedido hecho. Cuando el organizador lo confirme, quedás vinculado y te escribo por privado.',
     );
   }
+
+  if (!persona) return responder(NO_TE_CONOZCO(usuario.username));
 
   // Funciona antes y después del sorteo.
   if (comando === 'deseos') return manejarDeseos(i, persona, deps);

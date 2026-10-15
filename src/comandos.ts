@@ -26,6 +26,14 @@ export const COMANDOS = [
     description: 'Vincula tu cuenta de Discord con el amigo invisible',
     contexts: [SERVER],
     integration_types: [INSTALADO_EN_SERVER],
+    options: [
+      {
+        type: TEXTO,
+        name: 'mail',
+        description: 'Si no te encuentra por usuario: el mail que pusiste en el formulario',
+        max_length: 200,
+      },
+    ],
   },
   {
     name: 'mi-amigo',

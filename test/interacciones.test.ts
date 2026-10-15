@@ -7,6 +7,7 @@ import {
   type Interaccion,
   type Participacion,
   type Respuesta,
+  type ResultadoPedido,
 } from '../src/interacciones.ts';
 import { firmaValida } from '../src/firma.ts';
 import { COMANDOS } from '../src/comandos.ts';
@@ -41,8 +42,10 @@ function deps(
     contexto?: Contexto | null | 'sin-sortear';
     falla?: boolean;
     participacion?: Participacion | null;
+    pedido?: ResultadoPedido;
   } = {},
 ) {
+  const pedidos: string[] = [];
   const enviados: Enviado[] = [];
   const entregas: string[] = [];
   const deseosGuardados: (string | null)[] = [];
@@ -71,8 +74,12 @@ function deps(
     guardarDeseos: async (_id, deseos) => {
       deseosGuardados.push(deseos);
     },
+    pedirVinculo: async (_u, mail) => {
+      pedidos.push(mail);
+      return opts.pedido ?? 'pedido';
+    },
   };
-  return { d, enviados, entregas, deseosGuardados };
+  return { d, enviados, entregas, deseosGuardados, pedidos };
 }
 
 const deseos = (sub: string, texto?: string): Interaccion => ({
@@ -279,6 +286,47 @@ test('/deseos ver, borrar y los límites', async () => {
     texto(await manejarInteraccion(deseos('ver'), deps({ participacion: null }).d)),
     /No estás anotado/,
   );
+});
+
+const unirme = (mail?: string): Interaccion => ({
+  type: 2,
+  data: { name: 'unirme', options: mail === undefined ? [] : [{ name: 'mail', value: mail }] },
+  member: { user: { id: '999', username: 'nueva' } },
+  guild_id: '9',
+});
+
+test('/unirme sin estar en la lista sugiere usar el mail', async () => {
+  const r = texto(await manejarInteraccion(unirme(), deps({ persona: false }).d));
+  assert.match(r, /No te encontré/);
+  assert.match(r, /\/unirme mail:/);
+});
+
+test('/unirme mail: deja un pedido pendiente, no vincula directo', async () => {
+  const { d, pedidos } = deps({ persona: false });
+  const r = texto(await manejarInteraccion(unirme('  Ana@Ejemplo.com '), d));
+  assert.deepEqual(pedidos, ['ana@ejemplo.com']);
+  assert.match(r, /pedido hecho/);
+  assert.match(r, /organizador lo confirme/);
+});
+
+test('/unirme mail: explica cada caso y rechaza mails inválidos sin consultar', async () => {
+  const casos: [ResultadoPedido, RegExp][] = [
+    ['no-existe', /No encontré a nadie con ese mail/],
+    ['ya-vinculado', /ya está vinculado a otra cuenta/],
+    ['ya-pedido', /Ya tenías un pedido/],
+  ];
+  for (const [resultado, esperado] of casos) {
+    assert.match(texto(await manejarInteraccion(unirme('a@b.com'), deps({ persona: false, pedido: resultado }).d)), esperado);
+  }
+  const invalido = deps({ persona: false });
+  assert.match(texto(await manejarInteraccion(unirme('no-es-mail'), invalido.d)), /no parece válido/);
+  assert.deepEqual(invalido.pedidos, []);
+});
+
+test('/unirme de alguien ya vinculado no hace un pedido', async () => {
+  const { d, pedidos } = deps();
+  assert.match(texto(await manejarInteraccion(unirme('ana@ejemplo.com'), d)), /tu cuenta quedó vinculada/);
+  assert.deepEqual(pedidos, []);
 });
 
 test('todos los comandos definidos tienen manejador', async () => {

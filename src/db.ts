@@ -2,7 +2,7 @@ import type { EstadoAviso, Evento, Participante, Persona } from './tipos.ts';
 import type { FilaImportada } from './importar.ts';
 import { ordenarRonda, reacomodar, type Asignacion } from './sorteo.ts';
 import type { DatosAviso } from './mensajes.ts';
-import type { Contexto, EstadoEntrega, Participacion } from './interacciones.ts';
+import type { Contexto, EstadoEntrega, Participacion, ResultadoPedido } from './interacciones.ts';
 
 export type DatosEvento = Pick<
   Evento,
@@ -405,6 +405,84 @@ export async function contextoBot(
       participacion: regalador.participacion,
     },
   };
+}
+
+// ---------- Pedidos de vinculación por mail ----------
+
+export async function pedirVinculo(
+  db: D1Database,
+  usuario: { id: string; username: string },
+  mail: string,
+): Promise<ResultadoPedido> {
+  const p = await db
+    .prepare('SELECT id, discord_user_id, discord_pending_id FROM people WHERE email = ?')
+    .bind(mail)
+    .first<{ id: number; discord_user_id: string | null; discord_pending_id: string | null }>();
+  if (!p) return 'no-existe';
+  if (p.discord_user_id) return 'ya-vinculado';
+  if (p.discord_pending_id === usuario.id) return 'ya-pedido';
+  await db
+    .prepare(
+      `UPDATE people SET discord_pending_id = ?, discord_pending_username = ?, discord_pending_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+    )
+    .bind(usuario.id, usuario.username.toLowerCase(), p.id)
+    .run();
+  return 'pedido';
+}
+
+export type PedidoVinculo = { person_id: number; name: string; email: string; discord_pending_username: string };
+
+export async function pedidosDeVinculo(db: D1Database, eventoId: number): Promise<PedidoVinculo[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT pe.id AS person_id, pe.name, pe.email, pe.discord_pending_username
+       FROM participants pa JOIN people pe ON pe.id = pa.person_id
+       WHERE pa.event_id = ? AND pa.status = 'activo' AND pe.discord_pending_id IS NOT NULL
+       ORDER BY pe.discord_pending_at`,
+    )
+    .bind(eventoId)
+    .all<PedidoVinculo>();
+  return results;
+}
+
+/**
+ * Confirma el pedido: la cuenta queda vinculada y, si el aviso del sorteo había
+ * fallado por no tener Discord, vuelve a pendiente para mandarse solo.
+ * Devuelve el id de Discord vinculado, o null si no había pedido.
+ */
+export async function confirmarVinculo(db: D1Database, eventoId: number, personId: number): Promise<string | null> {
+  const p = await db
+    .prepare('SELECT discord_pending_id FROM people WHERE id = ? AND discord_pending_id IS NOT NULL')
+    .bind(personId)
+    .first<{ discord_pending_id: string }>();
+  if (!p) return null;
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE people SET discord_user_id = discord_pending_id, discord_username = discord_pending_username,
+           discord_pending_id = NULL, discord_pending_username = NULL, discord_pending_at = NULL
+         WHERE id = ?`,
+      )
+      .bind(personId),
+    db
+      .prepare(
+        `UPDATE assignments SET notify_error = NULL
+         WHERE event_id = ? AND notified_at IS NULL
+           AND giver_id IN (SELECT id FROM participants WHERE event_id = ? AND person_id = ?)`,
+      )
+      .bind(eventoId, eventoId, personId),
+  ]);
+  return p.discord_pending_id;
+}
+
+export async function rechazarVinculo(db: D1Database, personId: number): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE people SET discord_pending_id = NULL, discord_pending_username = NULL, discord_pending_at = NULL WHERE id = ?',
+    )
+    .bind(personId)
+    .run();
 }
 
 // ---------- Lista de deseos desde el bot ----------

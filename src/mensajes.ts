@@ -104,6 +104,16 @@ export function embedRespuesta(evento: string, quienResponde: string, texto: str
   };
 }
 
+export function embedVinculado(evento: string): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: 'Quedaste vinculado',
+    description:
+      'El organizador confirmó tu cuenta. Cuando se haga el sorteo te llega acá a quién le regalás. Mientras tanto podés armar tu lista con `/deseos agregar`.',
+    color: NARANJA,
+  };
+}
+
 // ---------- Lista de deseos ----------
 
 export function embedDeseos(evento: string, deseos: string): Embed {

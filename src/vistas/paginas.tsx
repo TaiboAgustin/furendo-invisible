@@ -1,6 +1,6 @@
 import type { EstadoAviso, Evento, Participante } from '../tipos.ts';
 import type { EstadoEntrega } from '../interacciones.ts';
-import type { EstadoRevelacion } from '../db.ts';
+import type { EstadoRevelacion, PedidoVinculo } from '../db.ts';
 import type { ResumenEvento, ResumenPersona } from '../db.ts';
 import { NOMBRES_CAMPO, type ResultadoImportacion } from '../importar.ts';
 import { Campo, Layout, Logo, fechaCorta, presupuesto, type Aviso } from './layout.tsx';
@@ -120,10 +120,11 @@ export function PaginaEvento(props: {
   avisos: Map<number, EstadoAviso>;
   entregas: Map<number, EstadoEntrega>;
   revelacion: EstadoRevelacion | null;
+  pedidos: PedidoVinculo[];
   config: Config;
   aviso?: Aviso | null;
 }) {
-  const { evento: e, participantes, avisos, entregas, revelacion, config } = props;
+  const { evento: e, participantes, avisos, entregas, revelacion, pedidos, config } = props;
   const activos = participantes.filter((p) => p.status === 'activo');
   const rango = presupuesto(e.budget_min, e.budget_max);
   const { sinContacto, porVincular, soloMail, suficientes } = chequeosSorteo(activos, config);
@@ -219,6 +220,38 @@ export function PaginaEvento(props: {
           </section>
 
           <aside class="lateral">
+            {pedidos.length > 0 && !revelado && (
+              <div class="tarjeta tarjeta--atencion">
+                <h3>Pedidos para vincular</h3>
+                <p class="texto-2">
+                  Usaron <code>/unirme mail:</code>. Confirmá solo si reconocés la cuenta de Discord.
+                </p>
+                <ul class="pedidos">
+                  {pedidos.map((p) => (
+                    <li>
+                      <span>
+                        <b>{p.name}</b> <span class="mono">({p.email})</span>
+                        <br />
+                        quiere vincular <span class="mono">@{p.discord_pending_username}</span>
+                      </span>
+                      <span class="pedido-acciones">
+                        <form method="post" action={`/eventos/${e.id}/vinculos/${p.person_id}/confirmar`}>
+                          <button class="boton" type="submit">
+                            Confirmar
+                          </button>
+                        </form>
+                        <form method="post" action={`/eventos/${e.id}/vinculos/${p.person_id}/rechazar`}>
+                          <button class="boton-texto boton-texto--peligro" type="submit">
+                            Rechazar
+                          </button>
+                        </form>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {editable && (
               <div class="tarjeta">
                 <h3>Antes de sortear</h3>
