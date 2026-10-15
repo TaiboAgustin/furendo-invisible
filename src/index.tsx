@@ -1,9 +1,14 @@
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import type { Env } from './tipos.ts';
+import type { Env, Evento } from './tipos.ts';
 import * as db from './db.ts';
 import { interpretarCsv, limpiarDiscord, urlCsvDeGoogleSheet } from './importar.ts';
 import { COOKIE_SESION, DURACION_SESION_SEG, contrasenaCorrecta, crearSesion, sesionValida } from './sesion.ts';
+import { sortear } from './sorteo.ts';
+import { avisar, contenidoSorteo, type Canales } from './avisos.ts';
+import { buscarMiembro, mandarDM } from './discord.ts';
+import { mandarMail } from './mail.ts';
+import { embedPrueba, mailPrueba } from './mensajes.ts';
 import type { Aviso } from './vistas/layout.tsx';
 import {
   PaginaEvento,
@@ -12,6 +17,7 @@ import {
   PaginaLogin,
   PaginaParticipante,
   PaginaPersonas,
+  alcanzable,
 } from './vistas/paginas.tsx';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -61,7 +67,45 @@ const AVISOS: Record<string, Aviso> = {
   agregado: { tipo: 'ok', texto: 'Participante agregado.' },
   quitado: { tipo: 'ok', texto: 'Participante quitado del evento.' },
   borrado: { tipo: 'ok', texto: 'Evento borrado.' },
+  sorteado: { tipo: 'ok', texto: 'Sorteo hecho. Los sobres quedaron sellados.' },
 };
+
+// ---------- Canales de aviso ----------
+
+function canales(env: Env): Canales {
+  const { DISCORD_BOT_TOKEN: token, BREVO_API_KEY: apiKey, MAIL_FROM: from } = env;
+  return {
+    discord: token ? (userId, embed) => mandarDM(token, userId, embed) : undefined,
+    mail:
+      apiKey && from
+        ? (para, mail) => mandarMail({ apiKey, from, fromName: env.MAIL_FROM_NAME || 'Furendo Invisible' }, para, mail)
+        : undefined,
+  };
+}
+
+function configuracion(env: Env) {
+  return {
+    discord: !!(env.DISCORD_BOT_TOKEN && env.DISCORD_GUILD_ID),
+    mail: !!(env.BREVO_API_KEY && env.MAIL_FROM),
+  };
+}
+
+async function paginaEvento(c: C, evento: Evento, aviso: Aviso | null, status: 200 | 400 | 409 = 200) {
+  const [participantes, avisos] = await Promise.all([
+    db.listarParticipantes(c.env.DB, evento.id),
+    db.estadoAvisos(c.env.DB, evento.id),
+  ]);
+  return c.html(
+    <PaginaEvento
+      evento={evento}
+      participantes={participantes}
+      avisos={avisos}
+      config={configuracion(c.env)}
+      aviso={aviso}
+    />,
+    status,
+  );
+}
 
 function avisoDe(c: Context): Aviso | null {
   const ok = c.req.query('ok');
@@ -148,21 +192,14 @@ app.post('/eventos', async (c) => {
 app.get('/eventos/:id', async (c) => {
   const evento = await cargarEvento(c);
   if (!evento) return c.notFound();
-  const participantes = await db.listarParticipantes(c.env.DB, evento.id);
-  return c.html(<PaginaEvento evento={evento} participantes={participantes} aviso={avisoDe(c)} />);
+  return paginaEvento(c, evento, avisoDe(c));
 });
 
 app.post('/eventos/:id', async (c) => {
   const evento = await cargarEvento(c);
   if (!evento) return c.notFound();
   const d = datosEvento(await c.req.parseBody());
-  if (typeof d === 'string') {
-    const participantes = await db.listarParticipantes(c.env.DB, evento.id);
-    return c.html(
-      <PaginaEvento evento={evento} participantes={participantes} aviso={{ tipo: 'error', texto: d }} />,
-      400,
-    );
-  }
+  if (typeof d === 'string') return paginaEvento(c, evento, { tipo: 'error', texto: d }, 400);
   await db.actualizarEvento(c.env.DB, evento.id, d);
   return c.redirect(`/eventos/${evento.id}?ok=guardado`);
 });
@@ -219,7 +256,8 @@ app.get('/eventos/:id/participantes/:pid', async (c) => {
   const evento = await cargarEvento(c);
   const participante = evento && (await cargarParticipante(c, evento.id));
   if (!evento || !participante) return c.notFound();
-  return c.html(<PaginaParticipante evento={evento} participante={participante} />);
+  const estadoAviso = (await db.estadoAvisos(c.env.DB, evento.id)).get(participante.participant_id);
+  return c.html(<PaginaParticipante evento={evento} participante={participante} estadoAviso={estadoAviso} />);
 });
 
 app.post('/eventos/:id/participantes/:pid', async (c) => {
@@ -330,6 +368,121 @@ app.post('/eventos/:id/importar', async (c) => {
     if (!msg) throw e;
     return c.html(<PaginaImportar evento={evento} error={`No se pudo importar: ${msg}`} />, 409);
   }
+});
+
+// ---------- Vincular Discord ----------
+
+// Cada búsqueda es una llamada a Discord; el plan gratis permite 50 por pedido.
+const MAX_BUSQUEDAS = 40;
+
+app.post('/eventos/:id/vincular', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  const { DISCORD_BOT_TOKEN: token, DISCORD_GUILD_ID: guild } = c.env;
+  if (!token || !guild) {
+    return paginaEvento(c, evento, { tipo: 'error', texto: 'Falta configurar el bot de Discord.' }, 409);
+  }
+
+  const sinVincular = (await db.listarParticipantes(c.env.DB, evento.id))
+    .filter((p) => p.status === 'activo' && p.discord_username && !p.discord_user_id)
+    .slice(0, MAX_BUSQUEDAS);
+  const vinculados: string[] = [];
+  const problemas: string[] = [];
+  for (const p of sinVincular) {
+    try {
+      const userId = await buscarMiembro(token, guild, p.discord_username!);
+      if (!userId) {
+        problemas.push(`${p.name} (no está en el server como @${p.discord_username})`);
+        continue;
+      }
+      await db.vincularDiscord(c.env.DB, p.person_id, userId);
+      vinculados.push(p.name);
+    } catch (e) {
+      const msg = db.esDuplicado(e) ? 'esa cuenta ya es de otra persona' : (e as Error).message;
+      problemas.push(`${p.name} (${msg})`);
+    }
+  }
+
+  const partes = [`Vinculados: ${vinculados.length}.`];
+  if (problemas.length) partes.push(`Revisá a ${problemas.join(', ')}.`);
+  return paginaEvento(c, evento, { tipo: problemas.length ? 'error' : 'ok', texto: partes.join(' ') });
+});
+
+// ---------- Sorteo ----------
+
+app.post('/eventos/:id/sortear', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  if (evento.status !== 'borrador') return c.redirect(`/eventos/${evento.id}`);
+
+  const activos = (await db.listarParticipantes(c.env.DB, evento.id)).filter((p) => p.status === 'activo');
+  const sinContacto = activos.filter((p) => !alcanzable(p, configuracion(c.env)));
+  if (activos.length < 3 || sinContacto.length > 0) {
+    const texto =
+      activos.length < 3
+        ? 'Hacen falta al menos 3 participantes.'
+        : `Antes de sortear, revisá cómo avisarles a: ${sinContacto.map((p) => p.name).join(', ')}.`;
+    return paginaEvento(c, evento, { tipo: 'error', texto }, 409);
+  }
+
+  await db.guardarSorteo(c.env.DB, evento.id, sortear(activos.map((p) => p.participant_id)));
+  return c.redirect(`/eventos/${evento.id}?ok=sorteado`);
+});
+
+// Manda una tanda de avisos. La página lo llama hasta que no quedan pendientes,
+// así ningún pedido supera el límite de llamadas externas del plan gratis.
+const AVISOS_POR_TANDA = 5;
+
+app.post('/eventos/:id/avisar', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  if (evento.status === 'borrador') return c.json({ error: 'El evento todavía no se sorteó.' }, 409);
+
+  const tanda = await db.avisosPendientes(c.env.DB, evento, AVISOS_POR_TANDA);
+  const can = canales(c.env);
+  for (const p of tanda) {
+    const r = await avisar(
+      { nombre: p.giver_name, discordUserId: p.giver_discord_user_id, email: p.giver_email },
+      contenidoSorteo(p.datos),
+      can,
+    );
+    await db.registrarAviso(c.env.DB, evento.id, p.giver_id, r.ok ? r : { error: r.error });
+  }
+
+  const estados = [...(await db.estadoAvisos(c.env.DB, evento.id)).values()];
+  return c.json({
+    enviados: estados.filter((e) => e.notified_at).length,
+    fallidos: estados.filter((e) => !e.notified_at && e.notify_error).length,
+    pendientes: estados.filter((e) => !e.notified_at && !e.notify_error).length,
+  });
+});
+
+app.post('/eventos/:id/avisos/reintentar', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  await db.reintentarAvisos(c.env.DB, evento.id);
+  return c.redirect(`/eventos/${evento.id}`);
+});
+
+app.post('/eventos/:id/participantes/:pid/probar', async (c) => {
+  const evento = await cargarEvento(c);
+  const participante = evento && (await cargarParticipante(c, evento.id));
+  if (!evento || !participante) return c.notFound();
+  const r = await avisar(
+    { nombre: participante.name, discordUserId: participante.discord_user_id, email: participante.email },
+    { embed: embedPrueba(participante.name), mail: mailPrueba(participante.name) },
+    canales(c.env),
+  );
+  const aviso: Aviso = r.ok
+    ? {
+        tipo: 'ok',
+        texto: `Mensaje de prueba enviado por ${r.canal === 'discord' ? 'Discord' : 'mail'}.${r.nota ? ` (${r.nota})` : ''}`,
+      }
+    : { tipo: 'error', texto: `No se pudo mandar la prueba. ${r.error}` };
+  const estadoAviso = (await db.estadoAvisos(c.env.DB, evento.id)).get(participante.participant_id);
+  return c.html(
+    <PaginaParticipante evento={evento} participante={participante} estadoAviso={estadoAviso} aviso={aviso} />,
+  );
 });
 
 // ---------- Personas ----------

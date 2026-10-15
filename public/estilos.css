@@ -208,7 +208,38 @@ legend { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text
 .sobre--nuevo::before { display: none; }
 .sobre--nuevo:hover { color: var(--texto); border-color: var(--texto-2); }
 
+/* Después del sorteo: la solapa se cierra y aparece el sello. */
+.sobre--cerrado::before { transform: scaleY(1); background: #f0cfa6; }
+.sobre--cerrado:hover::before { transform: scaleY(1); }
+.sobre--cerrado { padding-top: 70px; }
+.sello {
+  position: absolute; left: 50%; top: 36px; z-index: 1; width: 40px; height: 40px; margin-left: -20px;
+  border-radius: 50%; background: var(--atardecer); border: 3px solid var(--tinta);
+  display: grid; place-items: center; font: 800 16px var(--display); color: var(--tinta);
+  transform: rotate(-8deg); animation: sellar 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.sobres li:nth-child(2) .sello { animation-delay: 0.06s; }
+.sobres li:nth-child(3) .sello { animation-delay: 0.12s; }
+.sobres li:nth-child(4) .sello { animation-delay: 0.18s; }
+.sobres li:nth-child(n + 5) .sello { animation-delay: 0.24s; }
+@keyframes sellar { from { transform: scale(0) rotate(-40deg); } to { transform: scale(1) rotate(-8deg); } }
+
 .lateral { display: grid; gap: 14px; align-content: start; }
+.boton--ancho { width: 100%; margin-top: 14px; }
+.boton--sortear { width: 100%; margin-top: 16px; font-size: 22px; padding: 14px 18px; }
+.progreso { height: 10px; background: var(--carbon-3); border-radius: 99px; overflow: hidden; margin: 14px 0 8px; }
+.progreso i { display: block; height: 100%; background: var(--pino); border-radius: 99px; transition: width 0.3s; }
+.kv { display: flex; justify-content: space-between; font-size: 14px; padding: 6px 0; border-bottom: 1px solid var(--carbon-3); }
+.kv:last-of-type { border: 0; }
+.kv span:first-child { color: var(--texto-2); }
+.kv span:last-child { font-family: var(--mono); }
+.kv--error span { color: var(--peligro) !important; }
+.enviando { margin: 10px 0 0 !important; font-size: 14px; color: var(--mandarina); }
+
+.estado-contacto { display: grid; gap: 10px; margin: -6px 0 22px; padding: 14px 16px; border-radius: 14px; background: #fbe6c9; }
+.estado-contacto p { margin: 0; font-size: 15px; }
+.estado-contacto .meta { display: block; color: var(--papel-tinta); margin-bottom: 2px; }
+.detalle-error { display: block; margin-top: 4px; color: #a33e14; font-size: 14px; }
 .tarjeta { background: var(--carbon); border-radius: 18px; padding: 18px; }
 .tarjeta h2 { margin-bottom: 4px; }
 .tarjeta p { margin: 0; }

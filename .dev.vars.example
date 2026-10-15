@@ -7,3 +7,16 @@ ADMIN_PASSWORD=cambiame
 # Texto largo y al azar para firmar la sesión. Generalo con:
 #   node -e "console.log(crypto.randomBytes(32).toString('hex'))"
 SESSION_SECRET=reemplazar-por-un-texto-largo-al-azar
+
+# --- Discord (para avisar por mensaje privado) ---
+# Token del bot: Developer Portal → tu aplicación → Bot → Reset Token.
+# DISCORD_BOT_TOKEN=
+# Id del server: en Discord, activá el modo desarrollador y hacé clic derecho en el server → Copiar ID.
+# DISCORD_GUILD_ID=
+
+# --- Mail de respaldo (para quien no tiene Discord) ---
+# API key de Brevo: brevo.com → SMTP y API → API keys.
+# BREVO_API_KEY=
+# Remitente verificado en Brevo.
+# MAIL_FROM=
+# MAIL_FROM_NAME=Furendo Invisible

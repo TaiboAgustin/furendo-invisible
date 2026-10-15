@@ -10,9 +10,9 @@
     {
       "binding": "DB",
       "database_name": "furendo-invisible",
-      // En local cualquier valor sirve. Al publicar se reemplaza por el id que da
-      // `wrangler d1 create furendo-invisible`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Id de la base en Cloudflare (`wrangler d1 create furendo-invisible`).
+      // Si armás tu propia copia, creá tu base y reemplazalo por el tuyo.
+      "database_id": "c0d25f72-dc25-4253-ae1b-a7f0066220b3",
       "migrations_dir": "migrations"
     }
   ]
