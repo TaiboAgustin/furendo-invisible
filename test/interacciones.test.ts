@@ -192,6 +192,15 @@ test('/enviado avisa a quien recibe y /recibido avisa a quien regala, cada uno a
   assert.deepEqual(rec.entregas, ['7:3:recibido:false']);
 });
 
+test('/mi-amigo dice quién te regaló solo después de la revelación', async () => {
+  const antes = texto(await manejarInteraccion(comando('mi-amigo'), deps().d));
+  assert.ok(!antes.includes('Caro'));
+  const revelado = { ...ctx, evento: { ...ctx.evento, status: 'revelado' } };
+  const r = await manejarInteraccion(comando('mi-amigo'), deps({ contexto: revelado }).d);
+  assert.equal(r.type, 4);
+  if (r.type === 4) assert.match(JSON.stringify(r.data.embeds), /Quién te regaló a vos.*Caro/);
+});
+
 test('todos los comandos definidos tienen manejador', async () => {
   for (const c of COMANDOS) {
     const r = texto(await manejarInteraccion(comando(c.name, 'x'), deps().d));

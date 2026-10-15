@@ -8,6 +8,11 @@
     // No es secreta: sirve para comprobar que los comandos vienen de Discord.
     "DISCORD_PUBLIC_KEY": "5854ff3c94c3dbc0d899faddd4962cd64c8b99ac57359a956d073b50844abbb5"
   },
+  // Cada hora (minuto 5): revela los eventos cuya fecha llegó y sigue con los avisos pendientes.
+  // 03:05 UTC son las 00:05 en Argentina.
+  "triggers": {
+    "crons": ["5 * * * *"]
+  },
   "assets": {
     "directory": "./public"
   },

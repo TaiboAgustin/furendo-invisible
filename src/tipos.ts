@@ -6,6 +6,8 @@ export type Env = {
   DISCORD_BOT_TOKEN?: string;
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_GUILD_ID?: string;
+  /** Canal del server donde se publica el resumen de la revelación (opcional). */
+  DISCORD_REVEAL_CHANNEL_ID?: string;
   BREVO_API_KEY?: string;
   MAIL_FROM?: string;
   MAIL_FROM_NAME?: string;
@@ -24,6 +26,8 @@ export type Evento = {
   form_csv_url: string | null;
   status: EstadoEvento;
   drawn_at: string | null;
+  revealed_at: string | null;
+  reveal_posted: number;
   created_at: string;
 };
 

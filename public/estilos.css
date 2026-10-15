@@ -224,6 +224,12 @@ legend { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text
 .sobres li:nth-child(n + 5) .sello { animation-delay: 0.24s; }
 @keyframes sellar { from { transform: scale(0) rotate(-40deg); } to { transform: scale(1) rotate(-8deg); } }
 
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.subtitulo-ronda { margin: 16px 0 8px; font-size: 15px; }
+.ronda { margin: 0 0 12px; padding: 0 0 0 20px; display: grid; gap: 4px; font-size: 14px; }
+.ronda b { font-weight: 600; }
+.ronda span[aria-hidden] { color: var(--atardecer); margin: 0 4px; }
+.ayuda-baja { display: block; margin-top: 4px; color: var(--papel-tinta); font-size: 13px; }
 .sobre-regalo { font-size: 12px; font-weight: 600; color: var(--papel-tinta); margin-top: 4px; }
 .sobre-regalo--ok { color: var(--pino); }
 

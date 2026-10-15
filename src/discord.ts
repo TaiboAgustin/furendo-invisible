@@ -89,6 +89,16 @@ export async function mandarDM(
   await llamar(token, `/channels/${canal.id}/messages`, { method: 'POST', body }, f);
 }
 
+/** Publica un mensaje en un canal del server (el bot necesita permiso para escribir ahí). */
+export async function mandarAlCanal(token: string, canalId: string, embed: Embed, f: Fetch = fetch): Promise<void> {
+  await llamar(
+    token,
+    `/channels/${canalId}/messages`,
+    { method: 'POST', body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }) },
+    f,
+  );
+}
+
 /** Reemplaza la respuesta "pensando…" de un comando diferido. Usa el token de la interacción, no el del bot. */
 export async function completarRespuesta(
   appId: string,

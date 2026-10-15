@@ -16,8 +16,16 @@ Corre en [Cloudflare Workers](https://developers.cloudflare.com/workers/) con un
 
 - Comandos del bot para hablar con tu amigo invisible sin revelar quién sos.
 - Entregas: regalos virtuales anónimos por el bot (keys de Steam, códigos, links o archivos) y seguimiento de los físicos.
+- Bajas después del sorteo con el reacomodo mínimo: quien le regalaba a esa persona pasa a regalarle a quien ella tenía, y se le avisa del cambio.
+- Revelación automática a las 00 (hora argentina) del día elegido, o a mano desde el panel: a cada uno le llega quién era su amigo invisible y, si configurás un canal, se publica la ronda completa en el server.
 
-Lo que viene: las bajas con reacomodo y la revelación.
+## La revelación
+
+Un cron corre cada hora. Cuando llega la fecha de revelación de un evento sorteado, lo pasa a revelado y va mandando los avisos de a tandas. Si querés la revelación en Nochebuena a la medianoche, poné el **25/12** como fecha.
+
+Para publicar la ronda en un canal, cargá `DISCORD_REVEAL_CHANNEL_ID` con el id del canal (clic derecho en el canal → Copiar ID) y asegurate de que el bot pueda escribir ahí.
+
+Después de la revelación, el panel muestra quién le regaló a quién y `/mi-amigo` también dice quién te regaló a vos. Cuando terminás, **Cerrar evento** lo archiva y el bot deja de responder por él.
 
 ## Comandos del bot
 
