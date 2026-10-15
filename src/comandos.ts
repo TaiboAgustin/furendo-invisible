@@ -5,8 +5,12 @@
 const SERVER = 0;
 const PRIVADO_CON_BOT = 1;
 const INSTALADO_EN_SERVER = 0;
+const SUBCOMANDO = 1;
 const TEXTO = 3;
 const ADJUNTO = 11;
+
+/** Largo máximo de la lista de deseos: lo que entra en un campo de un mensaje de Discord. */
+export const MAX_DESEOS = 1000;
 
 export const TIPOS_REGALO = {
   steam: 'Key de Steam',
@@ -50,6 +54,24 @@ export const COMANDOS = [
     description: 'La dirección para mandarle el regalo a tu amigo invisible',
     contexts: [SERVER, PRIVADO_CON_BOT],
     integration_types: [INSTALADO_EN_SERVER],
+  },
+  {
+    name: 'deseos',
+    description: 'Tu lista de deseos: la ve quien te regala',
+    contexts: [SERVER, PRIVADO_CON_BOT],
+    integration_types: [INSTALADO_EN_SERVER],
+    options: [
+      {
+        type: SUBCOMANDO,
+        name: 'agregar',
+        description: 'Suma algo a tu lista de deseos',
+        options: [
+          { type: TEXTO, name: 'texto', description: 'Qué te gustaría que te regalen', required: true, max_length: 300 },
+        ],
+      },
+      { type: SUBCOMANDO, name: 'ver', description: 'Muestra tu lista de deseos' },
+      { type: SUBCOMANDO, name: 'borrar', description: 'Vacía tu lista para empezar de nuevo' },
+    ],
   },
   {
     name: 'entregar',

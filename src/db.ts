@@ -2,7 +2,7 @@ import type { EstadoAviso, Evento, Participante, Persona } from './tipos.ts';
 import type { FilaImportada } from './importar.ts';
 import { ordenarRonda, reacomodar, type Asignacion } from './sorteo.ts';
 import type { DatosAviso } from './mensajes.ts';
-import type { Contexto, EstadoEntrega } from './interacciones.ts';
+import type { Contexto, EstadoEntrega, Participacion } from './interacciones.ts';
 
 export type DatosEvento = Pick<
   Evento,
@@ -405,6 +405,48 @@ export async function contextoBot(
       participacion: regalador.participacion,
     },
   };
+}
+
+// ---------- Lista de deseos desde el bot ----------
+
+/** El evento en armado o sorteado donde participa (el sorteado tiene prioridad). */
+export async function participacionBot(db: D1Database, personaId: number): Promise<Participacion | null> {
+  const p = await db
+    .prepare(
+      `SELECT pa.id, pa.wishlist, e.id AS evento_id, e.name AS evento, e.status
+       FROM participants pa JOIN events e ON e.id = pa.event_id
+       WHERE pa.person_id = ? AND pa.status = 'activo' AND e.status IN ('borrador', 'sorteado')
+       ORDER BY (e.status = 'sorteado') DESC, e.id DESC LIMIT 1`,
+    )
+    .bind(personaId)
+    .first<{ id: number; wishlist: string | null; evento_id: number; evento: string; status: string }>();
+  if (!p) return null;
+
+  const sorteado = p.status === 'sorteado';
+  const regalador = sorteado
+    ? await db
+        .prepare(
+          `SELECT pe.name, pe.email, pe.discord_user_id FROM assignments a
+           JOIN participants g ON g.id = a.giver_id JOIN people pe ON pe.id = g.person_id
+           WHERE a.event_id = ? AND a.receiver_id = ?`,
+        )
+        .bind(p.evento_id, p.id)
+        .first<{ name: string; email: string | null; discord_user_id: string | null }>()
+    : null;
+
+  return {
+    id: p.id,
+    evento: p.evento,
+    sorteado,
+    deseos: p.wishlist,
+    regalador: regalador
+      ? { nombre: regalador.name, email: regalador.email, discordUserId: regalador.discord_user_id }
+      : null,
+  };
+}
+
+export async function guardarDeseos(db: D1Database, participacionId: number, deseos: string | null): Promise<void> {
+  await db.prepare('UPDATE participants SET wishlist = ? WHERE id = ?').bind(deseos, participacionId).run();
 }
 
 // ---------- Bajas ----------

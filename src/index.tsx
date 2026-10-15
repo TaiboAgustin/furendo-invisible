@@ -155,6 +155,8 @@ app.post('/discord/interacciones', async (c) => {
     enviar: (a, contenido) => avisar(a, contenido, can),
     registrarEntrega: (ev, giver, estado, virtual) => db.registrarEntrega(c.env.DB, ev, giver, estado, virtual),
     descargar: descargarAdjunto,
+    participacion: (id) => db.participacionBot(c.env.DB, id),
+    guardarDeseos: (id, deseos) => db.guardarDeseos(c.env.DB, id, deseos),
   });
 
   if (respuesta.type === 5) {

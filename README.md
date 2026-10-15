@@ -33,6 +33,7 @@ Después de la revelación, el panel muestra quién le regaló a quién y `/mi-a
 |---|---|
 | `/unirme` | Vincula tu cuenta de Discord con tu ficha (se usa en el server). |
 | `/mi-amigo` | Te recuerda a quién le regalás, su lista de deseos y el presupuesto. |
+| `/deseos` | Tu lista de deseos: `agregar`, `ver` o `borrar`. Funciona antes y después del sorteo; si la cambiás después, a quien te regala le llega un aviso. |
 | `/preguntar` | Le manda una pregunta a tu amigo invisible sin decir quién sos. |
 | `/responder` | Le contesta a quien te regala. |
 | `/direccion` | La dirección para mandarle el regalo. |

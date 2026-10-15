@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { manejarInteraccion, type Contexto, type Deps, type Interaccion, type Respuesta } from '../src/interacciones.ts';
+import {
+  manejarInteraccion,
+  type Contexto,
+  type Deps,
+  type Interaccion,
+  type Participacion,
+  type Respuesta,
+} from '../src/interacciones.ts';
 import { firmaValida } from '../src/firma.ts';
 import { COMANDOS } from '../src/comandos.ts';
 
@@ -28,9 +35,17 @@ type Enviado = {
   archivo?: string;
 };
 
-function deps(opts: { persona?: boolean; contexto?: Contexto | null | 'sin-sortear'; falla?: boolean } = {}) {
+function deps(
+  opts: {
+    persona?: boolean;
+    contexto?: Contexto | null | 'sin-sortear';
+    falla?: boolean;
+    participacion?: Participacion | null;
+  } = {},
+) {
   const enviados: Enviado[] = [];
   const entregas: string[] = [];
+  const deseosGuardados: (string | null)[] = [];
   const d: Deps = {
     persona: async () => (opts.persona === false ? null : { id: 1, name: 'Ana' }),
     contexto: async () => (opts.contexto === undefined ? ctx : opts.contexto),
@@ -49,9 +64,25 @@ function deps(opts: { persona?: boolean; contexto?: Contexto | null | 'sin-sorte
       entregas.push(`${ev}:${giver}:${estado}:${virtual}`);
     },
     descargar: async () => new Uint8Array([1, 2, 3]),
+    participacion: async () =>
+      opts.participacion === undefined
+        ? { id: 1, evento: 'Navidad 2026', sorteado: false, deseos: null, regalador: null }
+        : opts.participacion,
+    guardarDeseos: async (_id, deseos) => {
+      deseosGuardados.push(deseos);
+    },
   };
-  return { d, enviados, entregas };
+  return { d, enviados, entregas, deseosGuardados };
 }
+
+const deseos = (sub: string, texto?: string): Interaccion => ({
+  type: 2,
+  data: {
+    name: 'deseos',
+    options: [{ type: 1, name: sub, options: texto === undefined ? [] : [{ name: 'texto', value: texto }] }],
+  },
+  user: { id: '111', username: 'ana' },
+});
 
 const comando = (
   name: string,
@@ -199,6 +230,55 @@ test('/mi-amigo dice quién te regaló solo después de la revelación', async (
   const r = await manejarInteraccion(comando('mi-amigo'), deps({ contexto: revelado }).d);
   assert.equal(r.type, 4);
   if (r.type === 4) assert.match(JSON.stringify(r.data.embeds), /Quién te regaló a vos.*Caro/);
+});
+
+test('/deseos agregar suma a la lista antes del sorteo sin avisarle a nadie', async () => {
+  const { d, enviados, deseosGuardados } = deps({
+    participacion: { id: 1, evento: 'Navidad 2026', sorteado: false, deseos: '• Libros', regalador: null },
+  });
+  const r = await manejarInteraccion(deseos('agregar', 'Un buzo\nnegro'), d);
+  assert.deepEqual(deseosGuardados, ['• Libros\n• Un buzo negro']);
+  assert.match(texto(r), /Un buzo negro/);
+  assert.equal(enviados.length, 0);
+});
+
+test('/deseos después del sorteo le avisa a quien regala, sin decirle a quien la cambió quién es', async () => {
+  const { d, enviados } = deps({
+    participacion: {
+      id: 1,
+      evento: 'Navidad 2026',
+      sorteado: true,
+      deseos: null,
+      regalador: { nombre: 'Caro', discordUserId: '333', email: null },
+    },
+  });
+  const r = await manejarInteraccion(deseos('agregar', 'Hollow Knight'), d);
+  assert.equal(enviados[0].a, 'Caro');
+  assert.equal(enviados[0].titulo, 'Ana actualizó su lista de deseos');
+  assert.match(enviados[0].descripcion!, /Hollow Knight/);
+  assert.ok(!texto(r).includes('Caro') && !JSON.stringify(r).includes('Caro'));
+  assert.ok(!enviados[0].asunto.includes('Ana'), 'el asunto del mail no nombra a nadie');
+});
+
+test('/deseos ver, borrar y los límites', async () => {
+  assert.match(texto(await manejarInteraccion(deseos('ver'), deps().d)), /Tu lista está vacía/);
+  const conLista = deps({
+    participacion: { id: 1, evento: 'N', sorteado: false, deseos: '• Libros', regalador: null },
+  });
+  assert.match(texto(await manejarInteraccion(deseos('ver'), conLista.d)), /Libros/);
+  assert.match(texto(await manejarInteraccion(deseos('borrar'), conLista.d)), /quedó vacía/);
+  assert.deepEqual(conLista.deseosGuardados, [null]);
+
+  const llena = deps({
+    participacion: { id: 1, evento: 'N', sorteado: false, deseos: 'x'.repeat(995), regalador: null },
+  });
+  assert.match(texto(await manejarInteraccion(deseos('agregar', 'algo más'), llena.d)), /muy larga/);
+  assert.deepEqual(llena.deseosGuardados, []);
+
+  assert.match(
+    texto(await manejarInteraccion(deseos('ver'), deps({ participacion: null }).d)),
+    /No estás anotado/,
+  );
 });
 
 test('todos los comandos definidos tienen manejador', async () => {

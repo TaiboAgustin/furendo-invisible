@@ -104,6 +104,28 @@ export function embedRespuesta(evento: string, quienResponde: string, texto: str
   };
 }
 
+// ---------- Lista de deseos ----------
+
+export function embedDeseos(evento: string, deseos: string): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: 'Tu lista de deseos',
+    description: recortar(deseos, 4000),
+    color: NARANJA,
+  };
+}
+
+/** A quien regala: su amigo invisible cambió la lista. */
+export function embedDeseosActualizados(evento: string, quien: string, deseos: string | null): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: recortar(`${quien} actualizó su lista de deseos`, 256),
+    description: deseos ? recortar(deseos, 4000) : 'La dejó vacía por ahora.',
+    color: NARANJA,
+    footer: { text: 'La tenés siempre a mano con /mi-amigo.' },
+  };
+}
+
 // ---------- Bajas y revelación ----------
 
 /** A quien le regalaba a alguien que se dio de baja: su nuevo amigo invisible. */
