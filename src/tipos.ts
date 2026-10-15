@@ -4,6 +4,7 @@ export type Env = {
   SESSION_SECRET: string;
   // Opcionales: sin ellos la app funciona, pero no puede avisar por ese canal.
   DISCORD_BOT_TOKEN?: string;
+  DISCORD_PUBLIC_KEY?: string;
   DISCORD_GUILD_ID?: string;
   BREVO_API_KEY?: string;
   MAIL_FROM?: string;

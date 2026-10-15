@@ -9,6 +9,7 @@
     "db:migrate:local": "wrangler d1 migrations apply furendo-invisible --local",
     "db:migrate:remote": "wrangler d1 migrations apply furendo-invisible --remote",
     "deploy": "wrangler deploy",
+    "comandos": "node scripts/registrar-comandos.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
   },

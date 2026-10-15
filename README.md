@@ -14,7 +14,30 @@ Corre en [Cloudflare Workers](https://developers.cloudflare.com/workers/) con un
 - Sorteo en una sola ronda (A → B → C → … → A): nadie se toca a sí mismo y no quedan parejas cerradas.
 - Aviso a cada uno por mensaje privado de Discord, con mail de respaldo, y reintento de los que fallan.
 
-Lo que viene: los mensajes anónimos, las entregas y la revelación.
+- Comandos del bot para hablar con tu amigo invisible sin revelar quién sos.
+
+Lo que viene: las entregas y la revelación.
+
+## Comandos del bot
+
+| Comando | Qué hace |
+|---|---|
+| `/unirme` | Vincula tu cuenta de Discord con tu ficha (se usa en el server). |
+| `/mi-amigo` | Te recuerda a quién le regalás, su lista de deseos y el presupuesto. |
+| `/preguntar` | Le manda una pregunta a tu amigo invisible sin decir quién sos. |
+| `/responder` | Le contesta a quien te regala. |
+| `/direccion` | La dirección para mandarle el regalo. |
+| `/ayuda` | Cómo funciona todo. |
+
+Todas las respuestas del bot son efímeras: las ve solo quien usó el comando, aunque lo use en un canal del server. Los mensajes no se guardan en ningún lado: el bot los reenvía y listo.
+
+Para activarlos, después de publicar:
+
+```bash
+npm run comandos
+```
+
+y en el [Developer Portal](https://discord.com/developers/applications), en **General Information → Interactions Endpoint URL**, poné `https://<tu-app>.workers.dev/discord/interacciones`. La clave pública de tu aplicación va en `DISCORD_PUBLIC_KEY`, en `wrangler.jsonc`.
 
 ## Configurar el bot de Discord
 

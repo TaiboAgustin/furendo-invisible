@@ -9,6 +9,8 @@ import { avisar, contenidoSorteo, type Canales } from './avisos.ts';
 import { buscarMiembro, mandarDM } from './discord.ts';
 import { mandarMail } from './mail.ts';
 import { embedPrueba, mailPrueba } from './mensajes.ts';
+import { firmaValida } from './firma.ts';
+import { manejarInteraccion, type Interaccion } from './interacciones.ts';
 import type { Aviso } from './vistas/layout.tsx';
 import {
   PaginaEvento,
@@ -139,6 +141,30 @@ app.post('/entrar', async (c) => {
 app.post('/salir', (c) => {
   deleteCookie(c, COOKIE_SESION, { path: '/', secure: true });
   return c.redirect('/entrar');
+});
+
+// ---------- Bot de Discord ----------
+// Va antes del control de sesión: lo llama Discord, y se autentica con la firma.
+
+app.post('/discord/interacciones', async (c) => {
+  const clave = c.env.DISCORD_PUBLIC_KEY;
+  if (!clave) return c.text('Falta configurar DISCORD_PUBLIC_KEY.', 500);
+  const cuerpo = await c.req.text();
+  const ok = await firmaValida(
+    clave,
+    c.req.header('X-Signature-Ed25519'),
+    c.req.header('X-Signature-Timestamp'),
+    cuerpo,
+  );
+  if (!ok) return c.text('Firma inválida.', 401);
+
+  const can = canales(c.env);
+  const respuesta = await manejarInteraccion(JSON.parse(cuerpo) as Interaccion, {
+    persona: (u) => db.personaDeDiscord(c.env.DB, u),
+    contexto: (id) => db.contextoBot(c.env.DB, id),
+    enviar: (a, contenido) => avisar(a, contenido, can),
+  });
+  return c.json(respuesta);
 });
 
 // Todo lo demás requiere sesión.
