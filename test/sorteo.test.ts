@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sortear, enteroAleatorio } from '../src/sorteo.ts';
+import { sortear, enteroAleatorio, reacomodar } from '../src/sorteo.ts';
 
 function esUnaSolaRonda(ids: number[], asignaciones: { giver: number; receiver: number }[]) {
   const siguiente = new Map(asignaciones.map((a) => [a.giver, a.receiver]));
@@ -37,6 +37,32 @@ test('todas las rondas posibles salen con frecuencias parecidas', () => {
   }
   assert.equal(conteo.size, 6);
   for (const c of conteo.values()) assert.ok(Math.abs(c - vueltas / 6) < vueltas * 0.03, `frecuencia ${c}`);
+});
+
+test('reacomodar: solo cambia quien le regalaba a la baja y la ronda sigue siendo una', () => {
+  for (let n = 4; n <= 15; n++) {
+    const ids = Array.from({ length: n }, (_, i) => i + 1);
+    const antes = sortear(ids);
+    const baja = ids[Math.floor(n / 2)];
+    const { regalador, nuevoReceptor, resto } = reacomodar(antes, baja);
+
+    assert.equal(regalador, antes.find((a) => a.receiver === baja)!.giver);
+    assert.equal(nuevoReceptor, antes.find((a) => a.giver === baja)!.receiver);
+    const quedan = ids.filter((id) => id !== baja);
+    assert.ok(esUnaSolaRonda(quedan, resto));
+    assert.ok(resto.every((a) => a.giver !== a.receiver));
+    const cambiados = resto.filter((a) => {
+      const previa = antes.find((b) => b.giver === a.giver)!;
+      return previa.receiver !== a.receiver;
+    });
+    assert.deepEqual(cambiados, [{ giver: regalador, receiver: nuevoReceptor }]);
+  }
+});
+
+test('reacomodar no deja un evento con menos de 3 ni acepta a alguien que no está', () => {
+  const tres = sortear([1, 2, 3]);
+  assert.throws(() => reacomodar(tres, 1), /menos de 3/);
+  assert.throws(() => reacomodar(sortear([1, 2, 3, 4]), 9), /no está/);
 });
 
 test('rechaza menos de 3 participantes o ids repetidos', () => {

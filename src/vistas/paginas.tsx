@@ -1,5 +1,6 @@
 import type { EstadoAviso, Evento, Participante } from '../tipos.ts';
 import type { EstadoEntrega } from '../interacciones.ts';
+import type { EstadoRevelacion } from '../db.ts';
 import type { ResumenEvento, ResumenPersona } from '../db.ts';
 import { NOMBRES_CAMPO, type ResultadoImportacion } from '../importar.ts';
 import { Campo, Layout, Logo, fechaCorta, presupuesto, type Aviso } from './layout.tsx';
@@ -111,22 +112,26 @@ function chequeosSorteo(activos: Participante[], config: Config) {
   };
 }
 
-export type Config = { discord: boolean; mail: boolean };
+export type Config = { discord: boolean; mail: boolean; canalRevelacion: boolean };
 
 export function PaginaEvento(props: {
   evento: Evento;
   participantes: Participante[];
   avisos: Map<number, EstadoAviso>;
   entregas: Map<number, EstadoEntrega>;
+  revelacion: EstadoRevelacion | null;
   config: Config;
   aviso?: Aviso | null;
 }) {
-  const { evento: e, participantes, avisos, entregas, config } = props;
+  const { evento: e, participantes, avisos, entregas, revelacion, config } = props;
   const activos = participantes.filter((p) => p.status === 'activo');
   const rango = presupuesto(e.budget_min, e.budget_max);
   const { sinContacto, porVincular, soloMail, suficientes } = chequeosSorteo(activos, config);
   const editable = e.status === 'borrador';
-  const sorteado = !editable;
+  const revelado = !!revelacion;
+  // Sellados entre el sorteo y la revelación; después se vuelven a abrir.
+  const sorteado = !editable && !revelado;
+  const leRegaloA = new Map(revelacion?.ronda.map((r) => [r.giver, r.para]));
   const listo = suficientes && sinContacto.length === 0;
 
   const estados = [...avisos.values()];
@@ -184,8 +189,14 @@ export function PaginaEvento(props: {
                     )}
                     <span class="sobre-nombre">{p.name}</span>
                     <span class="sobre-discord">{p.discord_username ? `@${p.discord_username}` : p.email ?? ''}</span>
-                    {sorteado ? <EstadoAvisoSobre a={avisos.get(p.participant_id)} /> : <EstadoContacto p={p} />}
-                    {sorteado && <EstadoRegaloSobre estado={entregas.get(p.participant_id)} />}
+                    {revelado ? (
+                      <span class="sobre-estado">Le regaló a {leRegaloA.get(p.participant_id) ?? '—'}</span>
+                    ) : sorteado ? (
+                      <EstadoAvisoSobre a={avisos.get(p.participant_id)} />
+                    ) : (
+                      <EstadoContacto p={p} />
+                    )}
+                    {!editable && <EstadoRegaloSobre estado={entregas.get(p.participant_id)} />}
                   </a>
                 </li>
               ))}
@@ -281,7 +292,7 @@ export function PaginaEvento(props: {
                   </div>
                 )}
                 {pendientes > 0 && (
-                  <p class="enviando" id="enviando-avisos" data-evento={e.id} aria-live="polite">
+                  <p class="enviando" id="enviando-avisos" data-url={`/eventos/${e.id}/avisar`} aria-live="polite">
                     Enviando avisos…
                   </p>
                 )}
@@ -297,6 +308,82 @@ export function PaginaEvento(props: {
             )}
 
             {sorteado && (
+              <div class="tarjeta">
+                <h3>Revelación</h3>
+                <p class="texto-2">
+                  {e.reveal_date
+                    ? `Se revela sola el ${fechaCorta(e.reveal_date)} a las 00 (hora argentina): a cada uno le llega quién era su amigo invisible.`
+                    : 'Cargá la fecha de revelación en Datos del evento, o revelá cuando quieras.'}
+                  {config.canalRevelacion && ' La ronda completa se publica en el canal del server.'}
+                </p>
+                <form
+                  method="post"
+                  action={`/eventos/${e.id}/revelar`}
+                  onsubmit="return confirm('¿Revelar ahora? A cada uno le llega quién era su amigo invisible y los sobres se abren.')"
+                >
+                  <button class="boton boton--ancho" type="submit">
+                    Revelar ahora
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {revelacion && (
+              <div class="tarjeta">
+                <h3>{e.status === 'cerrado' ? 'Evento cerrado' : 'Revelado'}</h3>
+                <div class="kv">
+                  <span>Avisos de revelación</span>
+                  <span>
+                    {revelacion.avisados} de {revelacion.ronda.length}
+                  </span>
+                </div>
+                {revelacion.fallidos > 0 && (
+                  <div class="kv kv--error">
+                    <span>Fallaron</span>
+                    <span>{revelacion.fallidos}</span>
+                  </div>
+                )}
+                {revelacion.pendientes > 0 && e.status === 'revelado' && (
+                  <p
+                    class="enviando"
+                    id="enviando-avisos"
+                    data-url={`/eventos/${e.id}/avisar-revelacion`}
+                    aria-live="polite"
+                  >
+                    Enviando la revelación…
+                  </p>
+                )}
+                {revelacion.fallidos > 0 && revelacion.pendientes === 0 && (
+                  <form method="post" action={`/eventos/${e.id}/revelacion/reintentar`}>
+                    <button class="boton boton--ancho" type="submit">
+                      Reintentar los que fallaron
+                    </button>
+                  </form>
+                )}
+                <h3 class="subtitulo-ronda">La ronda</h3>
+                <ol class="ronda">
+                  {revelacion.ronda.map((r) => (
+                    <li>
+                      <b>{r.de}</b> <span aria-hidden="true">→</span>
+                      <span class="sr-only">le regaló a</span> {r.para}
+                    </li>
+                  ))}
+                </ol>
+                {e.status === 'revelado' && revelacion.pendientes === 0 && (
+                  <form
+                    method="post"
+                    action={`/eventos/${e.id}/cerrar`}
+                    onsubmit="return confirm('¿Cerrar el evento? El bot deja de responder por este evento.')"
+                  >
+                    <button class="boton boton--fantasma boton--ancho" type="submit">
+                      Cerrar evento
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {!editable && (
               <div class="tarjeta">
                 <h3>Regalos</h3>
                 <p class="texto-2">Cuántos van llegando, sin decir de quién.</p>
@@ -367,7 +454,9 @@ export function PaginaEvento(props: {
           </aside>
         </div>
       </article>
-      {sorteado && pendientes > 0 && <script src="/avisos.js" defer></script>}
+      {((sorteado && pendientes > 0) || (revelacion && revelacion.pendientes > 0 && e.status === 'revelado')) && (
+        <script src="/avisos.js" defer></script>
+      )}
     </Layout>
   );
 }
@@ -492,6 +581,20 @@ export function PaginaParticipante(props: {
             <button class="boton-texto boton-texto--peligro" type="submit">
               Sacar del evento
             </button>
+          </form>
+        )}
+        {!nuevo && e.status === 'sorteado' && p.status === 'activo' && (
+          <form
+            method="post"
+            action={`/eventos/${e.id}/participantes/${p.participant_id}/baja`}
+            onsubmit="return confirm('¿Dar de baja? Quien le regalaba pasa a regalarle a otra persona y le avisamos. No se puede deshacer.')"
+          >
+            <button class="boton-texto boton-texto--peligro" type="submit">
+              Dar de baja del evento
+            </button>
+            <small class="ayuda-baja">
+              Se reacomoda solo lo mínimo: quien le regalaba pasa a regalarle a quien tenía esta persona.
+            </small>
           </form>
         )}
       </div>

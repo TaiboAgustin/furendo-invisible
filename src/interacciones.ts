@@ -77,6 +77,8 @@ export type Contexto = {
     budget_max: number | null;
     deadline: string | null;
     reveal_date: string | null;
+    /** Después de la revelación ya se puede decir quién te regaló. */
+    status?: string;
   };
   yo: { name: string; participacion: number };
   /** A quién le regalo. */
@@ -154,9 +156,8 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
   if (!ctx) return responder('No estás en ningún amigo invisible en curso.');
 
   switch (comando) {
-    case 'mi-amigo':
-      return responder(
-        embedSorteo({
+    case 'mi-amigo': {
+      const embed = embedSorteo({
           evento: ctx.evento.name,
           budgetMin: ctx.evento.budget_min,
           budgetMax: ctx.evento.budget_max,
@@ -168,8 +169,13 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
           sizes: ctx.receptor.sizes,
           notes: ctx.receptor.notes,
           address: null,
-        }),
-      );
+      });
+      if (ctx.evento.status === 'revelado') {
+        embed.fields = [...(embed.fields ?? []), { name: 'Quién te regaló a vos', value: ctx.regalador.nombre }];
+        embed.footer = { text: 'Ya pasó la revelación.' };
+      }
+      return responder(embed);
+    }
 
     case 'direccion':
       return responder(

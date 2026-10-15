@@ -14,6 +14,9 @@ SESSION_SECRET=reemplazar-por-un-texto-largo-al-azar
 # Id del server: en Discord, activá el modo desarrollador y hacé clic derecho en el server → Copiar ID.
 # DISCORD_GUILD_ID=
 
+# Opcional: canal donde se publica la ronda completa el día de la revelación.
+# DISCORD_REVEAL_CHANNEL_ID=
+
 # --- Mail de respaldo (para quien no tiene Discord) ---
 # API key de Brevo: brevo.com → SMTP y API → API keys.
 # BREVO_API_KEY=

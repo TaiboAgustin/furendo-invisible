@@ -1,6 +1,6 @@
 import type { EstadoAviso, Evento, Participante, Persona } from './tipos.ts';
 import type { FilaImportada } from './importar.ts';
-import type { Asignacion } from './sorteo.ts';
+import { ordenarRonda, reacomodar, type Asignacion } from './sorteo.ts';
 import type { DatosAviso } from './mensajes.ts';
 import type { Contexto, EstadoEntrega } from './interacciones.ts';
 
@@ -238,7 +238,12 @@ export type AvisoPendiente = {
 };
 
 /** Los avisos que todavía no salieron ni fallaron. Es lo único que lee a quién le toca a quién. */
-export async function avisosPendientes(db: D1Database, evento: Evento, limite: number): Promise<AvisoPendiente[]> {
+export async function avisosPendientes(
+  db: D1Database,
+  evento: Evento,
+  limite: number,
+  soloRegalador?: number,
+): Promise<AvisoPendiente[]> {
   const { results } = await db
     .prepare(
       `SELECT a.giver_id,
@@ -249,9 +254,10 @@ export async function avisosPendientes(db: D1Database, evento: Evento, limite: n
        JOIN participants g ON g.id = a.giver_id JOIN people gp ON gp.id = g.person_id
        JOIN participants r ON r.id = a.receiver_id JOIN people rp ON rp.id = r.person_id
        WHERE a.event_id = ? AND a.notified_at IS NULL AND a.notify_error IS NULL
-       LIMIT ?`,
+         AND (?3 IS NULL OR a.giver_id = ?3)
+       LIMIT ?2`,
     )
-    .bind(evento.id, limite)
+    .bind(evento.id, limite, soloRegalador ?? null)
     .all<{
       giver_id: number;
       giver_name: string;
@@ -357,13 +363,15 @@ export async function contextoBot(
     .prepare(
       `SELECT e.*, pa.id AS mi_participacion, pe.name AS mi_nombre
        FROM participants pa JOIN events e ON e.id = pa.event_id JOIN people pe ON pe.id = pa.person_id
-       WHERE pa.person_id = ? AND pa.status = 'activo' AND e.status IN ('borrador', 'sorteado')
-       ORDER BY (e.status = 'sorteado') DESC, e.drawn_at DESC, e.id DESC LIMIT 1`,
+       WHERE pa.person_id = ? AND pa.status = 'activo' AND e.status IN ('borrador', 'sorteado', 'revelado')
+       ORDER BY CASE e.status WHEN 'sorteado' THEN 0 WHEN 'borrador' THEN 1 ELSE 2 END,
+                e.drawn_at DESC, e.id DESC
+       LIMIT 1`,
     )
     .bind(personaId)
     .first<Evento & { mi_participacion: number; mi_nombre: string }>();
   if (!actual) return null;
-  if (actual.status !== 'sorteado') return 'sin-sortear';
+  if (actual.status === 'borrador') return 'sin-sortear';
 
   // El otro extremo de mi asignación: si busco por giver_id obtengo a quién le regalo, y al revés.
   const otro = (yoComo: 'giver_id' | 'receiver_id', otroComo: 'giver_id' | 'receiver_id') =>
@@ -397,6 +405,202 @@ export async function contextoBot(
       participacion: regalador.participacion,
     },
   };
+}
+
+// ---------- Bajas ----------
+
+export type ResultadoBaja = {
+  regalador: number;
+  /** Quien le regalaba a la baja ya había mandado o entregado algo. */
+  regaladorYaHabiaEnviado: boolean;
+  /** La baja ya le había mandado su regalo a su amigo invisible: esa persona recibe dos. */
+  bajaYaHabiaEnviado: boolean;
+};
+
+/** Da de baja a alguien después del sorteo con el reacomodo mínimo. Todo en una transacción. */
+export async function darDeBaja(db: D1Database, eventoId: number, baja: number): Promise<ResultadoBaja> {
+  const [{ results: asignaciones }, { results: entregas }] = await Promise.all([
+    db
+      .prepare('SELECT giver_id AS giver, receiver_id AS receiver FROM assignments WHERE event_id = ?')
+      .bind(eventoId)
+      .all<Asignacion>(),
+    db.prepare('SELECT giver_id FROM deliveries WHERE event_id = ?').bind(eventoId).all<{ giver_id: number }>(),
+  ]);
+  const { regalador, nuevoReceptor } = reacomodar(asignaciones, baja);
+  const conEntrega = new Set(entregas.map((e) => e.giver_id));
+
+  await db.batch([
+    db.prepare('DELETE FROM assignments WHERE event_id = ? AND giver_id = ?').bind(eventoId, baja),
+    // El aviso vuelve a pendiente: quien regalaba tiene que enterarse del cambio.
+    db
+      .prepare(
+        `UPDATE assignments SET receiver_id = ?, notified_at = NULL, notify_channel = NULL, notify_error = NULL
+         WHERE event_id = ? AND giver_id = ?`,
+      )
+      .bind(nuevoReceptor, eventoId, regalador),
+    db.prepare('DELETE FROM deliveries WHERE event_id = ? AND giver_id IN (?, ?)').bind(eventoId, regalador, baja),
+    db.prepare(`UPDATE participants SET status = 'baja' WHERE event_id = ? AND id = ?`).bind(eventoId, baja),
+  ]);
+
+  return {
+    regalador,
+    regaladorYaHabiaEnviado: conEntrega.has(regalador),
+    bajaYaHabiaEnviado: conEntrega.has(baja),
+  };
+}
+
+// ---------- Revelación ----------
+
+/** Pasa el evento a revelado. Devuelve false si ya no estaba sorteado. */
+export async function empezarRevelacion(db: D1Database, eventoId: number): Promise<boolean> {
+  const r = await db
+    .prepare(`UPDATE events SET status = 'revelado', revealed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sorteado'`)
+    .bind(eventoId)
+    .run();
+  return r.meta.changes === 1;
+}
+
+export async function eventosParaRevelar(db: D1Database, hoy: string): Promise<Evento[]> {
+  const { results } = await db
+    .prepare(`SELECT * FROM events WHERE status = 'sorteado' AND reveal_date IS NOT NULL AND reveal_date <= ?`)
+    .bind(hoy)
+    .all<Evento>();
+  return results;
+}
+
+/** Eventos ya revelados que todavía tienen avisos de revelación sin mandar. */
+export async function revelacionesSinTerminar(db: D1Database): Promise<Evento[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT e.* FROM events e JOIN assignments a ON a.event_id = e.id
+       WHERE e.status = 'revelado' AND a.reveal_notified_at IS NULL AND a.reveal_error IS NULL`,
+    )
+    .all<Evento>();
+  return results;
+}
+
+export async function marcarResumenPublicado(db: D1Database, eventoId: number): Promise<void> {
+  await db.prepare('UPDATE events SET reveal_posted = 1 WHERE id = ?').bind(eventoId).run();
+}
+
+/** La ronda con nombres. Solo se usa con el evento ya revelado. */
+export async function rondaConNombres(
+  db: D1Database,
+  eventoId: number,
+): Promise<{ giver: number; de: string; para: string }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT a.giver_id AS giver, a.receiver_id AS receiver, gp.name AS de, rp.name AS para
+       FROM assignments a
+       JOIN participants g ON g.id = a.giver_id JOIN people gp ON gp.id = g.person_id
+       JOIN participants r ON r.id = a.receiver_id JOIN people rp ON rp.id = r.person_id
+       WHERE a.event_id = ?`,
+    )
+    .bind(eventoId)
+    .all<Asignacion & { de: string; para: string }>();
+  const nombres = new Map(results.map((r) => [r.giver, r]));
+  return ordenarRonda(results).map((a) => {
+    const fila = nombres.get(a.giver)!;
+    return { giver: a.giver, de: fila.de, para: fila.para };
+  });
+}
+
+export type RevelacionPendiente = {
+  receiver_id: number;
+  destinatario: { nombre: string; discordUserId: string | null; email: string | null };
+  quienLeRegalo: string;
+  aQuienRegalo: string | null;
+};
+
+/** Avisos de "tu amigo invisible era…": van a quien RECIBE. */
+export async function revelacionesPendientes(
+  db: D1Database,
+  eventoId: number,
+  limite: number,
+): Promise<RevelacionPendiente[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT a.receiver_id, rp.name AS nombre, rp.discord_user_id, rp.email, gp.name AS quien_le_regalo,
+              (SELECT xp.name FROM assignments a2 JOIN participants x ON x.id = a2.receiver_id
+                 JOIN people xp ON xp.id = x.person_id
+               WHERE a2.event_id = a.event_id AND a2.giver_id = a.receiver_id) AS a_quien_regalo
+       FROM assignments a
+       JOIN participants g ON g.id = a.giver_id JOIN people gp ON gp.id = g.person_id
+       JOIN participants r ON r.id = a.receiver_id JOIN people rp ON rp.id = r.person_id
+       WHERE a.event_id = ? AND a.reveal_notified_at IS NULL AND a.reveal_error IS NULL
+       LIMIT ?`,
+    )
+    .bind(eventoId, limite)
+    .all<{
+      receiver_id: number;
+      nombre: string;
+      discord_user_id: string | null;
+      email: string | null;
+      quien_le_regalo: string;
+      a_quien_regalo: string | null;
+    }>();
+  return results.map((r) => ({
+    receiver_id: r.receiver_id,
+    destinatario: { nombre: r.nombre, discordUserId: r.discord_user_id, email: r.email },
+    quienLeRegalo: r.quien_le_regalo,
+    aQuienRegalo: r.a_quien_regalo,
+  }));
+}
+
+export async function registrarRevelacion(
+  db: D1Database,
+  eventoId: number,
+  receiverId: number,
+  error: string | null,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE assignments SET
+         reveal_notified_at = CASE WHEN ?1 IS NULL THEN CURRENT_TIMESTAMP END,
+         reveal_error = ?1
+       WHERE event_id = ?2 AND receiver_id = ?3`,
+    )
+    .bind(error, eventoId, receiverId)
+    .run();
+}
+
+export async function reintentarRevelacion(db: D1Database, eventoId: number): Promise<void> {
+  await db
+    .prepare('UPDATE assignments SET reveal_error = NULL WHERE event_id = ? AND reveal_notified_at IS NULL')
+    .bind(eventoId)
+    .run();
+}
+
+export type EstadoRevelacion = {
+  ronda: { giver: number; de: string; para: string }[];
+  avisados: number;
+  fallidos: number;
+  pendientes: number;
+};
+
+export async function estadoRevelacion(db: D1Database, eventoId: number): Promise<EstadoRevelacion> {
+  const [ronda, conteo] = await Promise.all([
+    rondaConNombres(db, eventoId),
+    db
+      .prepare(
+        `SELECT SUM(reveal_notified_at IS NOT NULL) AS avisados,
+                SUM(reveal_notified_at IS NULL AND reveal_error IS NOT NULL) AS fallidos,
+                SUM(reveal_notified_at IS NULL AND reveal_error IS NULL) AS pendientes
+         FROM assignments WHERE event_id = ?`,
+      )
+      .bind(eventoId)
+      .first<{ avisados: number | null; fallidos: number | null; pendientes: number | null }>(),
+  ]);
+  return {
+    ronda,
+    avisados: conteo?.avisados ?? 0,
+    fallidos: conteo?.fallidos ?? 0,
+    pendientes: conteo?.pendientes ?? 0,
+  };
+}
+
+export async function cerrarEvento(db: D1Database, eventoId: number): Promise<void> {
+  await db.prepare(`UPDATE events SET status = 'cerrado' WHERE id = ? AND status = 'revelado'`).bind(eventoId).run();
 }
 
 // ---------- Entregas ----------

@@ -1,8 +1,8 @@
-// Manda los avisos del sorteo de a tandas hasta que no quedan pendientes.
+// Manda avisos (del sorteo o de la revelación) de a tandas hasta que no quedan pendientes.
 (async () => {
   const el = document.getElementById('enviando-avisos');
   if (!el) return;
-  const url = `/eventos/${el.dataset.evento}/avisar`;
+  const url = el.dataset.url;
   for (let vuelta = 0; vuelta < 50; vuelta++) {
     let estado;
     try {

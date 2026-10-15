@@ -5,10 +5,11 @@ import * as db from './db.ts';
 import { interpretarCsv, limpiarDiscord, urlCsvDeGoogleSheet } from './importar.ts';
 import { COOKIE_SESION, DURACION_SESION_SEG, contrasenaCorrecta, crearSesion, sesionValida } from './sesion.ts';
 import { sortear } from './sorteo.ts';
-import { avisar, contenidoSorteo, type Canales } from './avisos.ts';
-import { buscarMiembro, completarRespuesta, mandarDM } from './discord.ts';
-import { mandarMail } from './mail.ts';
-import { embedPrueba, mailPrueba } from './mensajes.ts';
+import { avisar, contenidoSorteo } from './avisos.ts';
+import { buscarMiembro, completarRespuesta } from './discord.ts';
+import { embedCambio, embedPrueba, mailCambio, mailPrueba } from './mensajes.ts';
+import { canales, configuracion } from './canales.ts';
+import { avisarRevelacion, revelarLoQueToca } from './revelacion.ts';
 import { firmaValida } from './firma.ts';
 import { MAX_ARCHIVO, manejarInteraccion, type Interaccion } from './interacciones.ts';
 import type { Aviso } from './vistas/layout.tsx';
@@ -70,34 +71,18 @@ const AVISOS: Record<string, Aviso> = {
   quitado: { tipo: 'ok', texto: 'Participante quitado del evento.' },
   borrado: { tipo: 'ok', texto: 'Evento borrado.' },
   sorteado: { tipo: 'ok', texto: 'Sorteo hecho. Los sobres quedaron sellados.' },
+  revelado: { tipo: 'ok', texto: 'Revelación en marcha: los sobres se abrieron.' },
+  cerrado: { tipo: 'ok', texto: 'Evento cerrado. Queda guardado como recuerdo.' },
 };
 
-// ---------- Canales de aviso ----------
-
-function canales(env: Env): Canales {
-  const { DISCORD_BOT_TOKEN: token, BREVO_API_KEY: apiKey, MAIL_FROM: from } = env;
-  return {
-    discord: token ? (userId, embed, archivo) => mandarDM(token, userId, embed, archivo) : undefined,
-    mail:
-      apiKey && from
-        ? (para, mail, archivo) =>
-            mandarMail({ apiKey, from, fromName: env.MAIL_FROM_NAME || 'Furendo Invisible' }, para, mail, archivo)
-        : undefined,
-  };
-}
-
-function configuracion(env: Env) {
-  return {
-    discord: !!(env.DISCORD_BOT_TOKEN && env.DISCORD_GUILD_ID),
-    mail: !!(env.BREVO_API_KEY && env.MAIL_FROM),
-  };
-}
-
 async function paginaEvento(c: C, evento: Evento, aviso: Aviso | null, status: 200 | 400 | 409 = 200) {
-  const [participantes, avisos, entregas] = await Promise.all([
+  const revelado = evento.status === 'revelado' || evento.status === 'cerrado';
+  const [participantes, avisos, entregas, revelacion] = await Promise.all([
     db.listarParticipantes(c.env.DB, evento.id),
     db.estadoAvisos(c.env.DB, evento.id),
     db.estadoEntregas(c.env.DB, evento.id),
+    // Las parejas solo se leen para mostrarlas una vez revelado el evento.
+    revelado ? db.estadoRevelacion(c.env.DB, evento.id) : null,
   ]);
   return c.html(
     <PaginaEvento
@@ -105,6 +90,7 @@ async function paginaEvento(c: C, evento: Evento, aviso: Aviso | null, status: 2
       participantes={participantes}
       avisos={avisos}
       entregas={entregas}
+      revelacion={revelacion}
       config={configuracion(c.env)}
       aviso={aviso}
     />,
@@ -340,7 +326,7 @@ app.post('/eventos/:id/participantes/:pid/quitar', async (c) => {
   const evento = await cargarEvento(c);
   const pid = id(c, 'pid');
   if (!evento || !pid) return c.notFound();
-  // Después del sorteo, sacar a alguien es una baja con reacomodo (etapa 5).
+  // Después del sorteo, sacar a alguien es una baja con reacomodo (ver /baja).
   if (evento.status !== 'borrador') return c.text('El evento ya se sorteó.', 409);
   await db.quitarParticipante(c.env.DB, evento.id, pid);
   return c.redirect(`/eventos/${evento.id}?ok=quitado`);
@@ -543,6 +529,85 @@ app.post('/eventos/:id/participantes/:pid/probar', async (c) => {
   );
 });
 
+// ---------- Bajas ----------
+
+app.post('/eventos/:id/participantes/:pid/baja', async (c) => {
+  const evento = await cargarEvento(c);
+  const participante = evento && (await cargarParticipante(c, evento.id));
+  if (!evento || !participante) return c.notFound();
+  if (evento.status !== 'sorteado' || participante.status !== 'activo') {
+    return paginaEvento(c, evento, { tipo: 'error', texto: 'Solo se puede dar de baja durante el evento.' }, 409);
+  }
+
+  let r: db.ResultadoBaja;
+  try {
+    r = await db.darDeBaja(c.env.DB, evento.id, participante.participant_id);
+  } catch (e) {
+    return paginaEvento(c, evento, { tipo: 'error', texto: `No se pudo dar de baja: ${(e as Error).message}` }, 409);
+  }
+
+  // Aviso del cambio a quien le regalaba. No se muestra quién es.
+  const [p] = await db.avisosPendientes(c.env.DB, evento, 1, r.regalador);
+  let avisado = false;
+  if (p) {
+    const res = await avisar(
+      { nombre: p.giver_name, discordUserId: p.giver_discord_user_id, email: p.giver_email },
+      { embed: embedCambio(p.datos, participante.name), mail: mailCambio(p.datos, participante.name) },
+      canales(c.env),
+    );
+    await db.registrarAviso(c.env.DB, evento.id, p.giver_id, res.ok ? res : { error: res.error });
+    avisado = res.ok;
+  }
+
+  const partes = [
+    `${participante.name} quedó afuera y se reacomodó el sorteo.`,
+    avisado
+      ? 'Le avisamos del cambio a quien le regalaba.'
+      : 'No pudimos avisarle del cambio a quien le regalaba: reintentá desde el panel.',
+  ];
+  if (r.regaladorYaHabiaEnviado) {
+    partes.push('Ojo: quien le regalaba ya había mandado su regalo, y ahora le toca regalarle a otra persona.');
+  }
+  if (r.bajaYaHabiaEnviado) {
+    partes.push(`${participante.name} ya había mandado su regalo: esa persona va a recibir dos.`);
+  }
+  const actualizado = (await db.obtenerEvento(c.env.DB, evento.id))!;
+  return paginaEvento(c, actualizado, { tipo: avisado ? 'ok' : 'error', texto: partes.join(' ') });
+});
+
+// ---------- Revelación ----------
+
+const REVELACIONES_POR_TANDA = 5;
+
+app.post('/eventos/:id/revelar', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  await db.empezarRevelacion(c.env.DB, evento.id);
+  return c.redirect(`/eventos/${evento.id}?ok=revelado`);
+});
+
+app.post('/eventos/:id/avisar-revelacion', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  if (evento.status !== 'revelado') return c.json({ error: 'El evento no está revelado.' }, 409);
+  const p = await avisarRevelacion(c.env, evento, REVELACIONES_POR_TANDA);
+  return c.json({ enviados: p.avisados, fallidos: p.fallidos, pendientes: p.pendientes, resumen: p.resumen });
+});
+
+app.post('/eventos/:id/revelacion/reintentar', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  await db.reintentarRevelacion(c.env.DB, evento.id);
+  return c.redirect(`/eventos/${evento.id}`);
+});
+
+app.post('/eventos/:id/cerrar', async (c) => {
+  const evento = await cargarEvento(c);
+  if (!evento) return c.notFound();
+  await db.cerrarEvento(c.env.DB, evento.id);
+  return c.redirect(`/eventos/${evento.id}?ok=cerrado`);
+});
+
 // ---------- Personas ----------
 
 app.get('/personas', async (c) => {
@@ -551,4 +616,10 @@ app.get('/personas', async (c) => {
 
 app.notFound((c) => c.text('No existe esa página.', 404));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  // Cada hora: revela los eventos cuya fecha llegó y sigue mandando los avisos pendientes.
+  async scheduled(_evento: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(revelarLoQueToca(env).then((log) => log.forEach((l) => console.log(l))));
+  },
+} satisfies ExportedHandler<Env>;

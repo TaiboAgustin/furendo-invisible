@@ -104,6 +104,57 @@ export function embedRespuesta(evento: string, quienResponde: string, texto: str
   };
 }
 
+// ---------- Bajas y revelación ----------
+
+/** A quien le regalaba a alguien que se dio de baja: su nuevo amigo invisible. */
+export function embedCambio(d: DatosAviso, quienSeFue: string): Embed {
+  const base = embedSorteo(d);
+  return {
+    ...base,
+    title: recortar(`Hubo un cambio: ahora le regalás a ${d.aQuien}`, 256),
+    description: [
+      `${quienSeFue} no va a participar, así que te toca otra persona.`,
+      base.description,
+    ].join('\n\n'),
+  };
+}
+
+export function mailCambio(d: DatosAviso, quienSeFue: string): Mail {
+  const m = mailSorteo(d);
+  const aviso = `${quienSeFue} no va a participar, así que te toca otra persona.`;
+  return {
+    subject: `Cambio en tu amigo invisible de ${d.evento}`,
+    text: `${aviso}\n\n${m.text}`,
+    html: m.html.replace('<p style="margin:0 0 16px">', `<p style="margin:0 0 16px">${escapar(aviso)}<br><br>`),
+  };
+}
+
+export function embedRevelacion(evento: string, quienTeRegalo: string, aQuienRegalaste: string | null): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: recortar(`Tu amigo invisible era ${quienTeRegalo}`, 256),
+    description: aQuienRegalaste
+      ? `Y vos le regalaste a ${aQuienRegalaste}. ¡Gracias por jugar!`
+      : '¡Gracias por jugar!',
+    color: NARANJA,
+  };
+}
+
+export function mailRevelacion(evento: string, quienTeRegalo: string): Mail {
+  const text = `En «${evento}», tu amigo invisible era ${quienTeRegalo}. ¡Gracias por jugar!`;
+  return { subject: `Revelación de ${evento}`, text, html: `<p>${escapar(text)}</p>` };
+}
+
+/** Resumen para el canal del server: la ronda completa, en orden. */
+export function embedResumenRevelacion(evento: string, ronda: { de: string; para: string }[]): Embed {
+  const lineas = ronda.map((r) => `**${r.de}** → ${r.para}`);
+  return {
+    title: recortar(`Revelación: ${evento}`, 256),
+    description: recortar(['Así quedó la ronda del amigo invisible:', '', ...lineas].join('\n'), 4000),
+    color: NARANJA,
+  };
+}
+
 // ---------- Entregas ----------
 
 /** Link que abre Steam con la key ya cargada para activarla. */
