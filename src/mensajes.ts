@@ -2,6 +2,9 @@
 
 export const NARANJA = 0xf26b1d;
 
+/** Archivo que acompaña un regalo virtual (una entrada, un voucher, un dibujo…). */
+export type Archivo = { nombre: string; tipo: string; datos: Uint8Array };
+
 export type DatosAviso = {
   evento: string;
   budgetMin: number | null;
@@ -98,6 +101,77 @@ export function embedRespuesta(evento: string, quienResponde: string, texto: str
     description: recortar(texto, 4000),
     color: NARANJA,
     footer: { text: 'Para seguir la charla, usá /preguntar.' },
+  };
+}
+
+// ---------- Entregas ----------
+
+/** Link que abre Steam con la key ya cargada para activarla. */
+export function linkActivarSteam(key: string): string {
+  return `https://store.steampowered.com/account/registerkey?key=${encodeURIComponent(key.trim())}`;
+}
+
+export function embedRegaloVirtual(
+  evento: string,
+  tipo: 'steam' | 'codigo' | 'link' | 'otro',
+  contenido: string,
+  mensaje: string | null,
+  conArchivo: boolean,
+): Embed {
+  const fields: NonNullable<Embed['fields']> = [];
+  let description: string;
+  // Las keys y códigos van tapados (spoiler) para que no se vean de reojo en pantalla.
+  const tapado = `||\`${recortar(contenido.replace(/`/g, "'"), 990)}\`||`;
+
+  switch (tipo) {
+    case 'steam':
+      description =
+        'Es un juego de Steam. Activalo desde Steam en **Juegos → Activar un producto en Steam**, o con el link de abajo.';
+      fields.push({ name: 'Key', value: tapado }, { name: 'Activar', value: linkActivarSteam(contenido) });
+      break;
+    case 'codigo':
+      description = 'Es un código: tocá el recuadro para verlo.';
+      fields.push({ name: 'Código', value: tapado });
+      break;
+    case 'link':
+      description = 'Es un link:';
+      fields.push({ name: 'Link', value: recortar(contenido, 1024) });
+      break;
+    default:
+      description = recortar(contenido, 4000);
+  }
+  if (conArchivo) fields.push({ name: 'Archivo', value: 'Va adjunto a este mensaje.' });
+  if (mensaje) fields.push({ name: 'Unas palabras', value: recortar(mensaje, 1024) });
+
+  return {
+    author: { name: recortar(evento, 256) },
+    title: 'Tu amigo invisible te dejó un regalo',
+    description,
+    color: NARANJA,
+    fields,
+    footer: { text: 'Si algo no anda, avisale con /responder. Cuando lo tengas, confirmalo con /recibido.' },
+  };
+}
+
+export function embedEnCamino(evento: string, seguimiento: string | null, mensaje: string | null): Embed {
+  const fields: NonNullable<Embed['fields']> = [];
+  if (seguimiento) fields.push({ name: 'Seguimiento', value: recortar(seguimiento, 1024) });
+  if (mensaje) fields.push({ name: 'Unas palabras', value: recortar(mensaje, 1024) });
+  return {
+    author: { name: recortar(evento, 256) },
+    title: 'Tu regalo está en camino',
+    description: 'Tu amigo invisible ya lo despachó. Cuando te llegue, confirmalo con /recibido.',
+    color: NARANJA,
+    fields,
+  };
+}
+
+export function embedRecibido(evento: string, quien: string, mensaje: string | null): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: recortar(`${quien} recibió tu regalo`, 256),
+    description: mensaje ? recortar(mensaje, 4000) : 'Ya lo tiene. Misión cumplida.',
+    color: NARANJA,
   };
 }
 

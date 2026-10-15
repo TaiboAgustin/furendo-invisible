@@ -6,11 +6,11 @@ import { interpretarCsv, limpiarDiscord, urlCsvDeGoogleSheet } from './importar.
 import { COOKIE_SESION, DURACION_SESION_SEG, contrasenaCorrecta, crearSesion, sesionValida } from './sesion.ts';
 import { sortear } from './sorteo.ts';
 import { avisar, contenidoSorteo, type Canales } from './avisos.ts';
-import { buscarMiembro, mandarDM } from './discord.ts';
+import { buscarMiembro, completarRespuesta, mandarDM } from './discord.ts';
 import { mandarMail } from './mail.ts';
 import { embedPrueba, mailPrueba } from './mensajes.ts';
 import { firmaValida } from './firma.ts';
-import { manejarInteraccion, type Interaccion } from './interacciones.ts';
+import { MAX_ARCHIVO, manejarInteraccion, type Interaccion } from './interacciones.ts';
 import type { Aviso } from './vistas/layout.tsx';
 import {
   PaginaEvento,
@@ -77,10 +77,11 @@ const AVISOS: Record<string, Aviso> = {
 function canales(env: Env): Canales {
   const { DISCORD_BOT_TOKEN: token, BREVO_API_KEY: apiKey, MAIL_FROM: from } = env;
   return {
-    discord: token ? (userId, embed) => mandarDM(token, userId, embed) : undefined,
+    discord: token ? (userId, embed, archivo) => mandarDM(token, userId, embed, archivo) : undefined,
     mail:
       apiKey && from
-        ? (para, mail) => mandarMail({ apiKey, from, fromName: env.MAIL_FROM_NAME || 'Furendo Invisible' }, para, mail)
+        ? (para, mail, archivo) =>
+            mandarMail({ apiKey, from, fromName: env.MAIL_FROM_NAME || 'Furendo Invisible' }, para, mail, archivo)
         : undefined,
   };
 }
@@ -93,15 +94,17 @@ function configuracion(env: Env) {
 }
 
 async function paginaEvento(c: C, evento: Evento, aviso: Aviso | null, status: 200 | 400 | 409 = 200) {
-  const [participantes, avisos] = await Promise.all([
+  const [participantes, avisos, entregas] = await Promise.all([
     db.listarParticipantes(c.env.DB, evento.id),
     db.estadoAvisos(c.env.DB, evento.id),
+    db.estadoEntregas(c.env.DB, evento.id),
   ]);
   return c.html(
     <PaginaEvento
       evento={evento}
       participantes={participantes}
       avisos={avisos}
+      entregas={entregas}
       config={configuracion(c.env)}
       aviso={aviso}
     />,
@@ -158,14 +161,43 @@ app.post('/discord/interacciones', async (c) => {
   );
   if (!ok) return c.text('Firma inválida.', 401);
 
+  const interaccion = JSON.parse(cuerpo) as Interaccion;
   const can = canales(c.env);
-  const respuesta = await manejarInteraccion(JSON.parse(cuerpo) as Interaccion, {
+  const respuesta = await manejarInteraccion(interaccion, {
     persona: (u) => db.personaDeDiscord(c.env.DB, u),
     contexto: (id) => db.contextoBot(c.env.DB, id),
     enviar: (a, contenido) => avisar(a, contenido, can),
+    registrarEntrega: (ev, giver, estado, virtual) => db.registrarEntrega(c.env.DB, ev, giver, estado, virtual),
+    descargar: descargarAdjunto,
   });
+
+  if (respuesta.type === 5) {
+    const { trabajo, ...pensando } = respuesta;
+    const { application_id: appId, token } = interaccion;
+    if (appId && token) {
+      c.executionCtx.waitUntil(
+        trabajo()
+          .catch(() => ({ data: { content: 'Algo falló del lado del bot. Probá de nuevo.' } }))
+          .then((r) => completarRespuesta(appId, token, r.data)),
+      );
+    }
+    return c.json(pensando);
+  }
   return c.json(respuesta);
 });
+
+/** Baja un adjunto que alguien subió a Discord, para reenviarlo. Solo desde el CDN de Discord. */
+async function descargarAdjunto(url: string): Promise<Uint8Array> {
+  const u = new URL(url);
+  if (u.protocol !== 'https:' || !/(^|\.)discordapp\.(com|net)$/.test(u.hostname)) {
+    throw new Error('El adjunto no viene de Discord.');
+  }
+  const r = await fetch(u);
+  if (!r.ok) throw new Error(`No se pudo bajar el adjunto (${r.status}).`);
+  const datos = new Uint8Array(await r.arrayBuffer());
+  if (datos.byteLength > MAX_ARCHIVO) throw new Error('El archivo es demasiado grande.');
+  return datos;
+}
 
 // Todo lo demás requiere sesión.
 app.use('*', async (c, next) => {

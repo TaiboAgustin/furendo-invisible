@@ -6,6 +6,15 @@ const SERVER = 0;
 const PRIVADO_CON_BOT = 1;
 const INSTALADO_EN_SERVER = 0;
 const TEXTO = 3;
+const ADJUNTO = 11;
+
+export const TIPOS_REGALO = {
+  steam: 'Key de Steam',
+  codigo: 'Código o gift card',
+  link: 'Link',
+  otro: 'Otra cosa (texto o archivo)',
+} as const;
+export type TipoRegalo = keyof typeof TIPOS_REGALO;
 
 export const COMANDOS = [
   {
@@ -41,6 +50,52 @@ export const COMANDOS = [
     description: 'La dirección para mandarle el regalo a tu amigo invisible',
     contexts: [SERVER, PRIVADO_CON_BOT],
     integration_types: [INSTALADO_EN_SERVER],
+  },
+  {
+    name: 'entregar',
+    description: 'Le pasa un regalo virtual a tu amigo invisible sin decir quién sos',
+    contexts: [PRIVADO_CON_BOT],
+    integration_types: [INSTALADO_EN_SERVER],
+    options: [
+      {
+        type: TEXTO,
+        name: 'tipo',
+        description: 'Qué le regalás',
+        required: true,
+        choices: Object.entries(TIPOS_REGALO).map(([value, name]) => ({ name, value })),
+      },
+      {
+        type: TEXTO,
+        name: 'contenido',
+        description: 'La key, el código, el link o lo que le quieras pasar',
+        required: true,
+        max_length: 1000,
+      },
+      { type: TEXTO, name: 'mensaje', description: 'Unas palabras para acompañar el regalo', max_length: 1000 },
+      { type: ADJUNTO, name: 'archivo', description: 'Un archivo: una entrada, un voucher, un dibujo…' },
+    ],
+  },
+  {
+    name: 'enviado',
+    description: 'Avisa que despachaste el regalo físico',
+    contexts: [SERVER, PRIVADO_CON_BOT],
+    integration_types: [INSTALADO_EN_SERVER],
+    options: [
+      {
+        type: TEXTO,
+        name: 'seguimiento',
+        description: 'Código de seguimiento (ojo: en algunos correos se ve quién envía)',
+        max_length: 200,
+      },
+      { type: TEXTO, name: 'mensaje', description: 'Algo que le quieras decir', max_length: 1000 },
+    ],
+  },
+  {
+    name: 'recibido',
+    description: 'Confirma que te llegó el regalo',
+    contexts: [SERVER, PRIVADO_CON_BOT],
+    integration_types: [INSTALADO_EN_SERVER],
+    options: [{ type: TEXTO, name: 'mensaje', description: 'Un agradecimiento para quien te regaló', max_length: 1000 }],
   },
   {
     name: 'ayuda',

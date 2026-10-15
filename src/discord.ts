@@ -1,7 +1,7 @@
 // Cliente mínimo de la API REST de Discord. El bot no necesita estar conectado
 // al gateway para mandar mensajes privados ni para buscar miembros del server.
 
-import type { Embed } from './mensajes.ts';
+import type { Archivo, Embed } from './mensajes.ts';
 
 const API = 'https://discord.com/api/v10';
 
@@ -24,8 +24,9 @@ async function llamar<T>(token: string, ruta: string, init: RequestInit = {}, f:
       ...init,
       headers: {
         Authorization: `Bot ${token}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'FurendoInvisible (https://github.com/TaiboAgustin/furendo-invisible, 0.2)',
+        // Con un archivo el cuerpo es multipart y fetch arma el Content-Type solo.
+        ...(typeof init.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
+        'User-Agent': 'FurendoInvisible (https://github.com/TaiboAgustin/furendo-invisible, 0.4)',
       },
     });
     if (r.status === 429 && intento < 2) {
@@ -65,17 +66,39 @@ export async function buscarMiembro(
   return exacto?.user.id ?? null;
 }
 
-export async function mandarDM(token: string, userId: string, embed: Embed, f: Fetch = fetch): Promise<void> {
+export async function mandarDM(
+  token: string,
+  userId: string,
+  embed: Embed,
+  archivo?: Archivo,
+  f: Fetch = fetch,
+): Promise<void> {
   const canal = await llamar<{ id: string }>(
     token,
     '/users/@me/channels',
     { method: 'POST', body: JSON.stringify({ recipient_id: userId }) },
     f,
   );
-  await llamar(
-    token,
-    `/channels/${canal.id}/messages`,
-    { method: 'POST', body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }) },
-    f,
-  );
+  const mensaje = { embeds: [embed], allowed_mentions: { parse: [] } };
+  let body: string | FormData = JSON.stringify(mensaje);
+  if (archivo) {
+    body = new FormData();
+    body.append('payload_json', JSON.stringify({ ...mensaje, attachments: [{ id: 0, filename: archivo.nombre }] }));
+    body.append('files[0]', new Blob([archivo.datos], { type: archivo.tipo }), archivo.nombre);
+  }
+  await llamar(token, `/channels/${canal.id}/messages`, { method: 'POST', body }, f);
+}
+
+/** Reemplaza la respuesta "pensando…" de un comando diferido. Usa el token de la interacción, no el del bot. */
+export async function completarRespuesta(
+  appId: string,
+  tokenInteraccion: string,
+  data: { content?: string; embeds?: Embed[] },
+  f: Fetch = fetch,
+): Promise<void> {
+  await f(`${API}/webhooks/${appId}/${tokenInteraccion}/messages/@original`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...data, allowed_mentions: { parse: [] } }),
+  });
 }

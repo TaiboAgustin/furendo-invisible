@@ -1,4 +1,5 @@
 import type { EstadoAviso, Evento, Participante } from '../tipos.ts';
+import type { EstadoEntrega } from '../interacciones.ts';
 import type { ResumenEvento, ResumenPersona } from '../db.ts';
 import { NOMBRES_CAMPO, type ResultadoImportacion } from '../importar.ts';
 import { Campo, Layout, Logo, fechaCorta, presupuesto, type Aviso } from './layout.tsx';
@@ -116,10 +117,11 @@ export function PaginaEvento(props: {
   evento: Evento;
   participantes: Participante[];
   avisos: Map<number, EstadoAviso>;
+  entregas: Map<number, EstadoEntrega>;
   config: Config;
   aviso?: Aviso | null;
 }) {
-  const { evento: e, participantes, avisos, config } = props;
+  const { evento: e, participantes, avisos, entregas, config } = props;
   const activos = participantes.filter((p) => p.status === 'activo');
   const rango = presupuesto(e.budget_min, e.budget_max);
   const { sinContacto, porVincular, soloMail, suficientes } = chequeosSorteo(activos, config);
@@ -131,6 +133,11 @@ export function PaginaEvento(props: {
   const enviados = estados.filter((a) => a.notified_at).length;
   const fallidos = estados.filter((a) => !a.notified_at && a.notify_error).length;
   const pendientes = estados.length - enviados - fallidos;
+
+  const estadosRegalo = [...entregas.values()];
+  const recibidos = estadosRegalo.filter((s) => s === 'recibido').length;
+  const enCamino = estadosRegalo.filter((s) => s === 'en_camino').length;
+  const virtuales = estadosRegalo.filter((s) => s === 'entregado').length;
 
   return (
     <Layout titulo={e.name} seccion="eventos" aviso={props.aviso}>
@@ -178,6 +185,7 @@ export function PaginaEvento(props: {
                     <span class="sobre-nombre">{p.name}</span>
                     <span class="sobre-discord">{p.discord_username ? `@${p.discord_username}` : p.email ?? ''}</span>
                     {sorteado ? <EstadoAvisoSobre a={avisos.get(p.participant_id)} /> : <EstadoContacto p={p} />}
+                    {sorteado && <EstadoRegaloSobre estado={entregas.get(p.participant_id)} />}
                   </a>
                 </li>
               ))}
@@ -288,6 +296,37 @@ export function PaginaEvento(props: {
               </div>
             )}
 
+            {sorteado && (
+              <div class="tarjeta">
+                <h3>Regalos</h3>
+                <p class="texto-2">Cuántos van llegando, sin decir de quién.</p>
+                <div
+                  class="progreso"
+                  role="progressbar"
+                  aria-label="Regalos recibidos"
+                  aria-valuemin={0}
+                  aria-valuemax={activos.length}
+                  aria-valuenow={recibidos}
+                >
+                  <i style={`width:${activos.length ? (recibidos / activos.length) * 100 : 0}%`}></i>
+                </div>
+                <div class="kv">
+                  <span>Recibidos</span>
+                  <span>
+                    {recibidos} de {activos.length}
+                  </span>
+                </div>
+                <div class="kv">
+                  <span>En camino</span>
+                  <span>{enCamino}</span>
+                </div>
+                <div class="kv">
+                  <span>Virtuales entregados</span>
+                  <span>{virtuales}</span>
+                </div>
+              </div>
+            )}
+
             <details class="tarjeta" open={!rango}>
               <summary>
                 <h3>Datos del evento</h3>
@@ -339,6 +378,14 @@ function EstadoContacto({ p }: { p: Participante }) {
   if (p.discord_username) return <span class="sobre-estado sobre-estado--falta">Falta vincular</span>;
   if (p.email) return <span class="sobre-estado sobre-estado--pendiente">Solo mail</span>;
   return <span class="sobre-estado sobre-estado--falta">Sin contacto</span>;
+}
+
+/** El regalo que le llega a esta persona. No dice de quién viene. */
+function EstadoRegaloSobre({ estado }: { estado: EstadoEntrega | undefined }) {
+  if (estado === 'recibido') return <span class="sobre-regalo sobre-regalo--ok">Recibió su regalo</span>;
+  if (estado === 'entregado') return <span class="sobre-regalo">Le llegó un regalo virtual</span>;
+  if (estado === 'en_camino') return <span class="sobre-regalo">Su regalo está en camino</span>;
+  return null;
 }
 
 function EstadoAvisoSobre({ a }: { a: EstadoAviso | undefined }) {
