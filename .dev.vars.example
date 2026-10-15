@@ -1,0 +1,9 @@
+# Copiá este archivo como .dev.vars para desarrollo local. No se sube al repo.
+# En producción se cargan con `npx wrangler secret put NOMBRE`.
+
+# Contraseña para entrar al panel del organizador.
+ADMIN_PASSWORD=cambiame
+
+# Texto largo y al azar para firmar la sesión. Generalo con:
+#   node -e "console.log(crypto.randomBytes(32).toString('hex'))"
+SESSION_SECRET=reemplazar-por-un-texto-largo-al-azar
