@@ -1,5 +1,7 @@
-import type { Evento, Participante, Persona } from './tipos.ts';
+import type { EstadoAviso, Evento, Participante, Persona } from './tipos.ts';
 import type { FilaImportada } from './importar.ts';
+import type { Asignacion } from './sorteo.ts';
+import type { DatosAviso } from './mensajes.ts';
 
 export type DatosEvento = Pick<
   Evento,
@@ -101,9 +103,10 @@ async function guardarPersona(db: D1Database, d: DatosPersona): Promise<number> 
   if (existente) {
     await db
       .prepare(
-        `UPDATE people SET name = ?, email = COALESCE(?, email),
-           discord_username = COALESCE(?, discord_username), address = COALESCE(?, address)
-         WHERE id = ?`,
+        `UPDATE people SET name = ?1, email = COALESCE(?2, email), address = COALESCE(?4, address),
+           discord_user_id = CASE WHEN ?3 IS NULL OR discord_username IS ?3 THEN discord_user_id ELSE NULL END,
+           discord_username = COALESCE(?3, discord_username)
+         WHERE id = ?5`,
       )
       .bind(d.name, d.email, d.discord_username, d.address, existente.id)
       .run();
@@ -171,8 +174,14 @@ export async function editarParticipante(
 ): Promise<void> {
   await db.batch([
     db
-      .prepare('UPDATE people SET name = ?, email = ?, discord_username = ?, address = ? WHERE id = ?')
-      .bind(persona.name, persona.email, persona.discord_username, persona.address, p.person_id),
+      // Si cambia el usuario de Discord, el vínculo anterior deja de valer.
+      .prepare(
+        `UPDATE people SET name = ?, email = ?, address = ?,
+           discord_user_id = CASE WHEN discord_username IS ?4 THEN discord_user_id ELSE NULL END,
+           discord_username = ?4
+         WHERE id = ?5`,
+      )
+      .bind(persona.name, persona.email, persona.address, persona.discord_username, p.person_id),
     db
       .prepare('UPDATE participants SET wishlist = ?, sizes = ?, notes = ? WHERE id = ?')
       .bind(datos.wishlist, datos.sizes, datos.notes, p.participant_id),
@@ -181,6 +190,125 @@ export async function editarParticipante(
 
 export async function quitarParticipante(db: D1Database, eventoId: number, participanteId: number): Promise<void> {
   await db.prepare('DELETE FROM participants WHERE event_id = ? AND id = ?').bind(eventoId, participanteId).run();
+}
+
+// ---------- Discord ----------
+
+export async function vincularDiscord(db: D1Database, personId: number, discordUserId: string): Promise<void> {
+  await db.prepare('UPDATE people SET discord_user_id = ? WHERE id = ?').bind(discordUserId, personId).run();
+}
+
+// ---------- Sorteo ----------
+
+/**
+ * Guarda el sorteo y marca el evento como sorteado en una sola transacción.
+ * Si el evento ya no estaba en armado (doble clic, otra pestaña), no inserta nada.
+ * Devuelve false en ese caso.
+ */
+export async function guardarSorteo(db: D1Database, eventoId: number, asignaciones: Asignacion[]): Promise<boolean> {
+  const enBorrador = `(SELECT status FROM events WHERE id = ?) = 'borrador'`;
+  const resultados = await db.batch([
+    ...asignaciones.map((a) =>
+      db
+        .prepare(`INSERT INTO assignments (event_id, giver_id, receiver_id) SELECT ?, ?, ? WHERE ${enBorrador}`)
+        .bind(eventoId, a.giver, a.receiver, eventoId),
+    ),
+    db
+      .prepare(`UPDATE events SET status = 'sorteado', drawn_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'borrador'`)
+      .bind(eventoId),
+  ]);
+  return (resultados.at(-1)?.meta.changes ?? 0) === 1;
+}
+
+export async function estadoAvisos(db: D1Database, eventoId: number): Promise<Map<number, EstadoAviso>> {
+  const { results } = await db
+    .prepare('SELECT giver_id, notified_at, notify_channel, notify_error FROM assignments WHERE event_id = ?')
+    .bind(eventoId)
+    .all<EstadoAviso>();
+  return new Map(results.map((r) => [r.giver_id, r]));
+}
+
+export type AvisoPendiente = {
+  giver_id: number;
+  giver_name: string;
+  giver_email: string | null;
+  giver_discord_user_id: string | null;
+  datos: DatosAviso;
+};
+
+/** Los avisos que todavía no salieron ni fallaron. Es lo único que lee a quién le toca a quién. */
+export async function avisosPendientes(db: D1Database, evento: Evento, limite: number): Promise<AvisoPendiente[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT a.giver_id,
+              gp.name AS giver_name, gp.email AS giver_email, gp.discord_user_id AS giver_discord_user_id,
+              rp.name AS receiver_name, rp.address AS receiver_address,
+              r.wishlist, r.sizes, r.notes
+       FROM assignments a
+       JOIN participants g ON g.id = a.giver_id JOIN people gp ON gp.id = g.person_id
+       JOIN participants r ON r.id = a.receiver_id JOIN people rp ON rp.id = r.person_id
+       WHERE a.event_id = ? AND a.notified_at IS NULL AND a.notify_error IS NULL
+       LIMIT ?`,
+    )
+    .bind(evento.id, limite)
+    .all<{
+      giver_id: number;
+      giver_name: string;
+      giver_email: string | null;
+      giver_discord_user_id: string | null;
+      receiver_name: string;
+      receiver_address: string | null;
+      wishlist: string | null;
+      sizes: string | null;
+      notes: string | null;
+    }>();
+  return results.map((r) => ({
+    giver_id: r.giver_id,
+    giver_name: r.giver_name,
+    giver_email: r.giver_email,
+    giver_discord_user_id: r.giver_discord_user_id,
+    datos: {
+      evento: evento.name,
+      budgetMin: evento.budget_min,
+      budgetMax: evento.budget_max,
+      entrega: evento.deadline,
+      revelacion: evento.reveal_date,
+      quienRegala: r.giver_name,
+      aQuien: r.receiver_name,
+      wishlist: r.wishlist,
+      sizes: r.sizes,
+      notes: r.notes,
+      address: r.receiver_address,
+    },
+  }));
+}
+
+export async function registrarAviso(
+  db: D1Database,
+  eventoId: number,
+  giverId: number,
+  r: { canal: 'discord' | 'mail'; nota?: string } | { error: string },
+): Promise<void> {
+  const q =
+    'error' in r
+      ? db
+          .prepare('UPDATE assignments SET notify_error = ? WHERE event_id = ? AND giver_id = ?')
+          .bind(r.error, eventoId, giverId)
+      : db
+          .prepare(
+            `UPDATE assignments SET notified_at = CURRENT_TIMESTAMP, notify_channel = ?, notify_error = ?
+             WHERE event_id = ? AND giver_id = ?`,
+          )
+          .bind(r.canal, r.nota ?? null, eventoId, giverId);
+  await q.run();
+}
+
+/** Vuelve a dejar como pendientes los avisos que fallaron, para reintentarlos. */
+export async function reintentarAvisos(db: D1Database, eventoId: number): Promise<void> {
+  await db
+    .prepare('UPDATE assignments SET notify_error = NULL WHERE event_id = ? AND notified_at IS NULL')
+    .bind(eventoId)
+    .run();
 }
 
 // ---------- Personas ----------

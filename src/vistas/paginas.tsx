@@ -1,4 +1,4 @@
-import type { Evento, Participante } from '../tipos.ts';
+import type { EstadoAviso, Evento, Participante } from '../tipos.ts';
 import type { ResumenEvento, ResumenPersona } from '../db.ts';
 import { NOMBRES_CAMPO, type ResultadoImportacion } from '../importar.ts';
 import { Campo, Layout, Logo, fechaCorta, presupuesto, type Aviso } from './layout.tsx';
@@ -94,18 +94,43 @@ export function PaginaEventos({ eventos, aviso }: { eventos: ResumenEvento[]; av
 
 // ---------- Evento ----------
 
-function chequeosSorteo(activos: Participante[]) {
-  const sinContacto = activos.filter((p) => !p.discord_username && !p.email);
-  const sinDiscord = activos.filter((p) => !p.discord_username && p.email);
-  return { sinContacto, sinDiscord, suficientes: activos.length >= 3 };
+/** Si hay algún canal configurado que llegue a esta persona. */
+export function alcanzable(p: Pick<Participante, 'discord_user_id' | 'email'>, config: Config): boolean {
+  return (!!p.discord_user_id && config.discord) || (!!p.email && config.mail);
 }
 
-export function PaginaEvento(props: { evento: Evento; participantes: Participante[]; aviso?: Aviso | null }) {
-  const { evento: e, participantes } = props;
+function chequeosSorteo(activos: Participante[], config: Config) {
+  return {
+    suficientes: activos.length >= 3,
+    // Bloquean el sorteo: con lo configurado hoy no habría forma de avisarles.
+    sinContacto: activos.filter((p) => !alcanzable(p, config)),
+    // Tienen usuario de Discord cargado pero todavía no se buscó su cuenta.
+    porVincular: activos.filter((p) => p.discord_username && !p.discord_user_id),
+    soloMail: activos.filter((p) => !p.discord_user_id && p.email),
+  };
+}
+
+export type Config = { discord: boolean; mail: boolean };
+
+export function PaginaEvento(props: {
+  evento: Evento;
+  participantes: Participante[];
+  avisos: Map<number, EstadoAviso>;
+  config: Config;
+  aviso?: Aviso | null;
+}) {
+  const { evento: e, participantes, avisos, config } = props;
   const activos = participantes.filter((p) => p.status === 'activo');
   const rango = presupuesto(e.budget_min, e.budget_max);
-  const { sinContacto, sinDiscord, suficientes } = chequeosSorteo(activos);
+  const { sinContacto, porVincular, soloMail, suficientes } = chequeosSorteo(activos, config);
   const editable = e.status === 'borrador';
+  const sorteado = !editable;
+  const listo = suficientes && sinContacto.length === 0;
+
+  const estados = [...avisos.values()];
+  const enviados = estados.filter((a) => a.notified_at).length;
+  const fallidos = estados.filter((a) => !a.notified_at && a.notify_error).length;
+  const pendientes = estados.length - enviados - fallidos;
 
   return (
     <Layout titulo={e.name} seccion="eventos" aviso={props.aviso}>
@@ -141,10 +166,18 @@ export function PaginaEvento(props: { evento: Evento; participantes: Participant
             <ul class="sobres">
               {activos.map((p) => (
                 <li>
-                  <a class="sobre" href={`/eventos/${e.id}/participantes/${p.participant_id}`}>
+                  <a
+                    class={sorteado ? 'sobre sobre--cerrado' : 'sobre'}
+                    href={`/eventos/${e.id}/participantes/${p.participant_id}`}
+                  >
+                    {sorteado && (
+                      <span class="sello" aria-hidden="true">
+                        F
+                      </span>
+                    )}
                     <span class="sobre-nombre">{p.name}</span>
                     <span class="sobre-discord">{p.discord_username ? `@${p.discord_username}` : p.email ?? ''}</span>
-                    <EstadoContacto p={p} />
+                    {sorteado ? <EstadoAvisoSobre a={avisos.get(p.participant_id)} /> : <EstadoContacto p={p} />}
                   </a>
                 </li>
               ))}
@@ -167,28 +200,93 @@ export function PaginaEvento(props: { evento: Evento; participantes: Participant
           </section>
 
           <aside class="lateral">
-            <div class="tarjeta">
-              <h3>Antes de sortear</h3>
-              <ul class="chequeos">
-                <li class={suficientes ? 'ok' : 'falta'}>
-                  {suficientes ? `${activos.length} participantes` : 'Hacen falta al menos 3 participantes'}
-                </li>
-                {activos.length > 0 && (
-                  <li class={sinContacto.length === 0 ? 'ok' : 'falta'}>
-                    {sinContacto.length === 0
-                      ? 'Todos tienen Discord o mail'
-                      : `Sin Discord ni mail: ${sinContacto.map((p) => p.name).join(', ')}`}
+            {editable && (
+              <div class="tarjeta">
+                <h3>Antes de sortear</h3>
+                <ul class="chequeos">
+                  <li class={suficientes ? 'ok' : 'falta'}>
+                    {suficientes ? `${activos.length} participantes` : 'Hacen falta al menos 3 participantes'}
                   </li>
+                  {activos.length > 0 && (
+                    <li class={sinContacto.length === 0 ? 'ok' : 'falta'}>
+                      {sinContacto.length === 0
+                        ? 'A todos les puede llegar el aviso'
+                        : `Sin forma de avisarles: ${sinContacto.map((p) => p.name).join(', ')}`}
+                    </li>
+                  )}
+                  {soloMail.length > 0 && (
+                    <li class="aviso-suave">
+                      {soloMail.length === 1 ? '1 persona recibe' : `${soloMail.length} personas reciben`} el aviso
+                      por mail.
+                    </li>
+                  )}
+                  {!config.discord && <li class="falta">El bot de Discord no está configurado.</li>}
+                  {!config.mail && soloMail.length > 0 && <li class="falta">El mail no está configurado.</li>}
+                </ul>
+
+                {porVincular.length > 0 && config.discord && (
+                  <form method="post" action={`/eventos/${e.id}/vincular`}>
+                    <button class="boton boton--ancho" type="submit">
+                      Buscar {porVincular.length === 1 ? '1 cuenta' : `${porVincular.length} cuentas`} en Discord
+                    </button>
+                  </form>
                 )}
-                {sinDiscord.length > 0 && (
-                  <li class="aviso-suave">
-                    {sinDiscord.length === 1 ? '1 persona' : `${sinDiscord.length} personas`} sin Discord: les
-                    avisamos por mail.
-                  </li>
+
+                {listo && (
+                  <form
+                    method="post"
+                    action={`/eventos/${e.id}/sortear`}
+                    onsubmit="return confirm('¿Sortear ahora? Los sobres se sellan y no se puede deshacer.')"
+                  >
+                    <button class="boton boton--principal boton--sortear" type="submit">
+                      Sortear
+                    </button>
+                  </form>
                 )}
-              </ul>
-              <p class="texto-2 nota">El sorteo se habilita en la próxima etapa.</p>
-            </div>
+              </div>
+            )}
+
+            {sorteado && (
+              <div class="tarjeta">
+                <h3>Sorteo hecho</h3>
+                <p class="texto-2">Nadie puede ver quién le regala a quién, ni siquiera desde acá.</p>
+                <div
+                  class="progreso"
+                  role="progressbar"
+                  aria-label="Avisos enviados"
+                  aria-valuemin={0}
+                  aria-valuemax={estados.length}
+                  aria-valuenow={enviados}
+                >
+                  <i style={`width:${estados.length ? (enviados / estados.length) * 100 : 0}%`}></i>
+                </div>
+                <div class="kv">
+                  <span>Avisos enviados</span>
+                  <span>
+                    {enviados} de {estados.length}
+                  </span>
+                </div>
+                {fallidos > 0 && (
+                  <div class="kv kv--error">
+                    <span>Fallaron</span>
+                    <span>{fallidos}</span>
+                  </div>
+                )}
+                {pendientes > 0 && (
+                  <p class="enviando" id="enviando-avisos" data-evento={e.id} aria-live="polite">
+                    Enviando avisos…
+                  </p>
+                )}
+                {fallidos > 0 && pendientes === 0 && (
+                  <form method="post" action={`/eventos/${e.id}/avisos/reintentar`}>
+                    <p class="texto-2 nota">Tocá cada sobre en rojo para ver qué pasó y corregir el contacto.</p>
+                    <button class="boton boton--ancho" type="submit">
+                      Reintentar los que fallaron
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
 
             <details class="tarjeta" open={!rango}>
               <summary>
@@ -230,15 +328,25 @@ export function PaginaEvento(props: { evento: Evento; participantes: Participant
           </aside>
         </div>
       </article>
+      {sorteado && pendientes > 0 && <script src="/avisos.js" defer></script>}
     </Layout>
   );
 }
 
 function EstadoContacto({ p }: { p: Participante }) {
   if (p.discord_user_id) return <span class="sobre-estado">Discord vinculado</span>;
-  if (p.discord_username) return <span class="sobre-estado sobre-estado--pendiente">Falta /unirme</span>;
+  if (p.discord_username && p.email) return <span class="sobre-estado sobre-estado--pendiente">Falta vincular</span>;
+  if (p.discord_username) return <span class="sobre-estado sobre-estado--falta">Falta vincular</span>;
   if (p.email) return <span class="sobre-estado sobre-estado--pendiente">Solo mail</span>;
   return <span class="sobre-estado sobre-estado--falta">Sin contacto</span>;
+}
+
+function EstadoAvisoSobre({ a }: { a: EstadoAviso | undefined }) {
+  if (a?.notified_at) {
+    return <span class="sobre-estado">Aviso por {a.notify_channel === 'discord' ? 'Discord' : 'mail'}</span>;
+  }
+  if (a?.notify_error) return <span class="sobre-estado sobre-estado--falta">El aviso falló</span>;
+  return <span class="sobre-estado sobre-estado--pendiente">Aviso pendiente</span>;
 }
 
 // ---------- Participante ----------
@@ -246,19 +354,52 @@ function EstadoContacto({ p }: { p: Participante }) {
 export function PaginaParticipante(props: {
   evento: Evento;
   participante: Participante | null;
+  estadoAviso?: EstadoAviso;
   error?: string;
+  aviso?: Aviso | null;
 }) {
-  const { evento: e, participante: p } = props;
+  const { evento: e, participante: p, estadoAviso: a } = props;
   const nuevo = !p;
   const accion = nuevo ? `/eventos/${e.id}/participantes` : `/eventos/${e.id}/participantes/${p.participant_id}`;
   return (
-    <Layout titulo={nuevo ? 'Agregar participante' : p.name} seccion="eventos">
+    <Layout titulo={nuevo ? 'Agregar participante' : p.name} seccion="eventos" aviso={props.aviso}>
       <a class="volver" href={`/eventos/${e.id}`}>
         ← {e.name}
       </a>
       <div class="hoja">
         <div class="hoja-solapa" aria-hidden="true"></div>
         <h1 class="titulo-display titulo-display--chico">{nuevo ? 'Agregar participante' : p.name}</h1>
+
+        {!nuevo && (
+          <div class="estado-contacto">
+            <p>
+              <span class="meta">Discord</span>
+              {p.discord_user_id
+                ? 'Vinculado. El bot le puede escribir.'
+                : p.discord_username
+                  ? 'Todavía no se buscó su cuenta en el server.'
+                  : 'Sin usuario cargado.'}
+            </p>
+            {a && (
+              <p>
+                <span class="meta">Aviso del sorteo</span>
+                {a.notified_at
+                  ? `Enviado por ${a.notify_channel === 'discord' ? 'Discord' : 'mail'}.`
+                  : a.notify_error
+                    ? 'Falló.'
+                    : 'Pendiente.'}
+                {a.notify_error && <span class="detalle-error">{a.notify_error}</span>}
+              </p>
+            )}
+            {(p.discord_user_id || p.email) && (
+              <form method="post" action={`/eventos/${e.id}/participantes/${p.participant_id}/probar`}>
+                <button class="boton boton--fantasma" type="submit">
+                  Mandarle un mensaje de prueba
+                </button>
+              </form>
+            )}
+          </div>
+        )}
         <form method="post" action={accion} class="pila">
           <fieldset>
             <legend>Contacto</legend>
