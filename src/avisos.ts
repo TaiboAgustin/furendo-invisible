@@ -1,6 +1,6 @@
 // Decide por dónde avisarle a cada uno: Discord primero y mail de respaldo.
 
-import { embedSorteo, mailSorteo, type DatosAviso, type Embed, type Mail } from './mensajes.ts';
+import { embedSorteo, mailSorteo, type Archivo, type DatosAviso, type Embed, type Mail } from './mensajes.ts';
 
 export type Destinatario = {
   nombre: string;
@@ -9,9 +9,11 @@ export type Destinatario = {
 };
 
 export type Canales = {
-  discord?: (userId: string, embed: Embed) => Promise<void>;
-  mail?: (para: { email: string; nombre: string }, mail: Mail) => Promise<void>;
+  discord?: (userId: string, embed: Embed, archivo?: Archivo) => Promise<void>;
+  mail?: (para: { email: string; nombre: string }, mail: Mail, archivo?: Archivo) => Promise<void>;
 };
+
+export type Contenido = { embed: Embed; mail: Mail; archivo?: Archivo };
 
 export type ResultadoAviso =
   | { ok: true; canal: 'discord' | 'mail'; nota?: string }
@@ -21,7 +23,7 @@ const mensaje = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function avisar(
   a: Destinatario,
-  contenido: { embed: Embed; mail: Mail },
+  contenido: Contenido,
   canales: Canales,
 ): Promise<ResultadoAviso> {
   let falloDiscord: string | null = null;
@@ -29,7 +31,7 @@ export async function avisar(
   if (a.discordUserId) {
     if (canales.discord) {
       try {
-        await canales.discord(a.discordUserId, contenido.embed);
+        await canales.discord(a.discordUserId, contenido.embed, contenido.archivo);
         return { ok: true, canal: 'discord' };
       } catch (e) {
         falloDiscord = `Discord: ${mensaje(e)}`;
@@ -41,7 +43,7 @@ export async function avisar(
 
   if (a.email && canales.mail) {
     try {
-      await canales.mail({ email: a.email, nombre: a.nombre }, contenido.mail);
+      await canales.mail({ email: a.email, nombre: a.nombre }, contenido.mail, contenido.archivo);
       return { ok: true, canal: 'mail', nota: falloDiscord ?? undefined };
     } catch (e) {
       return { ok: false, error: [falloDiscord, `Mail: ${mensaje(e)}`].filter(Boolean).join(' ') };

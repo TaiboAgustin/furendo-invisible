@@ -224,6 +224,9 @@ legend { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text
 .sobres li:nth-child(n + 5) .sello { animation-delay: 0.24s; }
 @keyframes sellar { from { transform: scale(0) rotate(-40deg); } to { transform: scale(1) rotate(-8deg); } }
 
+.sobre-regalo { font-size: 12px; font-weight: 600; color: var(--papel-tinta); margin-top: 4px; }
+.sobre-regalo--ok { color: var(--pino); }
+
 .lateral { display: grid; gap: 14px; align-content: start; }
 .boton--ancho { width: 100%; margin-top: 14px; }
 .boton--sortear { width: 100%; margin-top: 16px; font-size: 22px; padding: 14px 18px; }

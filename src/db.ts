@@ -2,7 +2,7 @@ import type { EstadoAviso, Evento, Participante, Persona } from './tipos.ts';
 import type { FilaImportada } from './importar.ts';
 import type { Asignacion } from './sorteo.ts';
 import type { DatosAviso } from './mensajes.ts';
-import type { Contexto } from './interacciones.ts';
+import type { Contexto, EstadoEntrega } from './interacciones.ts';
 
 export type DatosEvento = Pick<
   Evento,
@@ -338,6 +338,7 @@ export async function personaDeDiscord(
 }
 
 type FilaContacto = {
+  participacion: number;
   name: string;
   email: string | null;
   discord_user_id: string | null;
@@ -368,7 +369,7 @@ export async function contextoBot(
   const otro = (yoComo: 'giver_id' | 'receiver_id', otroComo: 'giver_id' | 'receiver_id') =>
     db
       .prepare(
-        `SELECT pe.name, pe.email, pe.discord_user_id, pe.address, pa.wishlist, pa.sizes, pa.notes
+        `SELECT pa.id AS participacion, pe.name, pe.email, pe.discord_user_id, pe.address, pa.wishlist, pa.sizes, pa.notes
          FROM assignments a JOIN participants pa ON pa.id = a.${otroComo} JOIN people pe ON pe.id = pa.person_id
          WHERE a.event_id = ? AND a.${yoComo} = ?`,
       )
@@ -379,7 +380,7 @@ export async function contextoBot(
 
   return {
     evento: actual,
-    yo: { name: actual.mi_nombre },
+    yo: { name: actual.mi_nombre, participacion: actual.mi_participacion },
     receptor: {
       nombre: receptor.name,
       discordUserId: receptor.discord_user_id,
@@ -389,8 +390,54 @@ export async function contextoBot(
       sizes: receptor.sizes,
       notes: receptor.notes,
     },
-    regalador: { nombre: regalador.name, discordUserId: regalador.discord_user_id, email: regalador.email },
+    regalador: {
+      nombre: regalador.name,
+      discordUserId: regalador.discord_user_id,
+      email: regalador.email,
+      participacion: regalador.participacion,
+    },
   };
+}
+
+// ---------- Entregas ----------
+
+/** Un "recibido" no vuelve atrás aunque después llegue un /enviado o /entregar. */
+export async function registrarEntrega(
+  db: D1Database,
+  eventoId: number,
+  regaladorId: number,
+  estado: EstadoEntrega,
+  virtual: boolean,
+): Promise<void> {
+  const recibido = estado === 'recibido';
+  await db
+    .prepare(
+      `INSERT INTO deliveries (event_id, giver_id, status, virtual, sent_at, received_at)
+       VALUES (?1, ?2, ?3, ?4, CASE WHEN ?5 THEN NULL ELSE CURRENT_TIMESTAMP END, CASE WHEN ?5 THEN CURRENT_TIMESTAMP END)
+       ON CONFLICT (event_id, giver_id) DO UPDATE SET
+         status = CASE WHEN deliveries.status = 'recibido' THEN 'recibido' ELSE excluded.status END,
+         virtual = MAX(deliveries.virtual, excluded.virtual),
+         sent_at = COALESCE(deliveries.sent_at, excluded.sent_at),
+         received_at = COALESCE(deliveries.received_at, excluded.received_at)`,
+    )
+    .bind(eventoId, regaladorId, estado, virtual ? 1 : 0, recibido ? 1 : 0)
+    .run();
+}
+
+/**
+ * Estado del regalo que le llega a cada participante, indexado por quien lo RECIBE.
+ * Muestra cómo va cada uno sin decir quién se lo manda.
+ */
+export async function estadoEntregas(db: D1Database, eventoId: number): Promise<Map<number, EstadoEntrega>> {
+  const { results } = await db
+    .prepare(
+      `SELECT a.receiver_id, d.status FROM deliveries d
+       JOIN assignments a ON a.event_id = d.event_id AND a.giver_id = d.giver_id
+       WHERE d.event_id = ?`,
+    )
+    .bind(eventoId)
+    .all<{ receiver_id: number; status: EstadoEntrega }>();
+  return new Map(results.map((r) => [r.receiver_id, r.status]));
 }
 
 // ---------- Personas ----------

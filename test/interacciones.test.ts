@@ -5,8 +5,8 @@ import { firmaValida } from '../src/firma.ts';
 import { COMANDOS } from '../src/comandos.ts';
 
 const ctx: Contexto = {
-  evento: { name: 'Navidad 2026', budget_min: 50000, budget_max: 70000, deadline: null, reveal_date: '2026-12-24' },
-  yo: { name: 'Ana' },
+  evento: { id: 7, name: 'Navidad 2026', budget_min: 50000, budget_max: 70000, deadline: null, reveal_date: '2026-12-24' },
+  yo: { name: 'Ana', participacion: 1 },
   receptor: {
     nombre: 'Beto',
     discordUserId: '222',
@@ -16,25 +16,51 @@ const ctx: Contexto = {
     sizes: null,
     notes: null,
   },
-  regalador: { nombre: 'Caro', discordUserId: '333', email: 'caro@ejemplo.com' },
+  regalador: { nombre: 'Caro', discordUserId: '333', email: 'caro@ejemplo.com', participacion: 3 },
 };
 
-function deps(opts: { persona?: boolean; contexto?: Contexto | null | 'sin-sortear' } = {}) {
-  const enviados: { a: string; titulo?: string; descripcion?: string; asunto: string }[] = [];
+type Enviado = {
+  a: string;
+  titulo?: string;
+  descripcion?: string;
+  campos: string;
+  asunto: string;
+  archivo?: string;
+};
+
+function deps(opts: { persona?: boolean; contexto?: Contexto | null | 'sin-sortear'; falla?: boolean } = {}) {
+  const enviados: Enviado[] = [];
+  const entregas: string[] = [];
   const d: Deps = {
     persona: async () => (opts.persona === false ? null : { id: 1, name: 'Ana' }),
     contexto: async () => (opts.contexto === undefined ? ctx : opts.contexto),
     enviar: async (a, c) => {
-      enviados.push({ a: a.nombre, titulo: c.embed.title, descripcion: c.embed.description, asunto: c.mail.subject });
-      return { ok: true, canal: 'discord' };
+      enviados.push({
+        a: a.nombre,
+        titulo: c.embed.title,
+        descripcion: c.embed.description,
+        campos: JSON.stringify(c.embed.fields ?? []),
+        asunto: c.mail.subject,
+        archivo: c.archivo?.nombre,
+      });
+      return opts.falla ? { ok: false, error: 'DMs cerrados.' } : { ok: true, canal: 'discord' };
     },
+    registrarEntrega: async (ev, giver, estado, virtual) => {
+      entregas.push(`${ev}:${giver}:${estado}:${virtual}`);
+    },
+    descargar: async () => new Uint8Array([1, 2, 3]),
   };
-  return { d, enviados };
+  return { d, enviados, entregas };
 }
 
-const comando = (name: string, mensaje?: string, enServer = false): Interaccion => ({
+const comando = (
+  name: string,
+  mensaje?: string,
+  enServer = false,
+  extra: { name: string; value: unknown }[] = [],
+): Interaccion => ({
   type: 2,
-  data: { name, options: mensaje === undefined ? [] : [{ name: 'mensaje', value: mensaje }] },
+  data: { name, options: [...(mensaje === undefined ? [] : [{ name: 'mensaje', value: mensaje }]), ...extra] },
   ...(enServer ? { member: { user: { id: '111', username: 'ana' } }, guild_id: '9' } : { user: { id: '111', username: 'ana' } }),
 });
 
@@ -88,6 +114,82 @@ test('/preguntar sin texto no manda nada', async () => {
   const { d, enviados } = deps();
   assert.match(texto(await manejarInteraccion(comando('preguntar', '   '), d)), /Escribí la pregunta/);
   assert.equal(enviados.length, 0);
+});
+
+test('/entregar una key de Steam: la tapa, arma el link para activarla y anota la entrega', async () => {
+  const { d, enviados, entregas } = deps();
+  const r = await manejarInteraccion(
+    comando('entregar', 'Feliz navidad', false, [
+      { name: 'tipo', value: 'steam' },
+      { name: 'contenido', value: 'AAAAA-BBBBB-CCCCC' },
+    ]),
+    d,
+  );
+  assert.match(texto(r), /Beto ya tiene tu regalo/);
+  assert.equal(enviados[0].a, 'Beto');
+  assert.match(enviados[0].campos, /\|\|`AAAAA-BBBBB-CCCCC`\|\|/, 'la key va como spoiler');
+  assert.match(enviados[0].campos, /registerkey\?key=AAAAA-BBBBB-CCCCC/);
+  assert.ok(!JSON.stringify(enviados[0]).includes('Ana'), 'no revela quién regala');
+  assert.deepEqual(entregas, ['7:1:entregado:true']);
+});
+
+test('/entregar con archivo contesta "pensando" y después reenvía el archivo', async () => {
+  const { d, enviados, entregas } = deps();
+  const i = comando('entregar', undefined, false, [
+    { name: 'tipo', value: 'otro' },
+    { name: 'contenido', value: 'Una entrada para el recital' },
+    { name: 'archivo', value: 'adj1' },
+  ]);
+  i.data!.resolved = { attachments: { adj1: { url: 'https://cdn.discordapp.com/x.pdf', filename: 'entrada.pdf', size: 3 } } };
+  const r = await manejarInteraccion(i, d);
+  assert.equal(r.type, 5);
+  assert.equal(enviados.length, 0, 'todavía no mandó nada');
+  if (r.type !== 5) return;
+  assert.equal(r.data.flags, 64);
+  const final = await r.trabajo();
+  assert.match(texto(final), /Beto ya tiene tu regalo/);
+  assert.equal(enviados[0].archivo, 'entrada.pdf');
+  assert.deepEqual(entregas, ['7:1:entregado:true']);
+});
+
+test('/entregar rechaza archivos de más de 10 MB y no anota nada si falla el envío', async () => {
+  const grande = deps();
+  const i = comando('entregar', undefined, false, [
+    { name: 'tipo', value: 'otro' },
+    { name: 'contenido', value: 'x' },
+    { name: 'archivo', value: 'a' },
+  ]);
+  i.data!.resolved = { attachments: { a: { url: 'https://cdn.discordapp.com/a', filename: 'a', size: 11 * 1024 * 1024 } } };
+  assert.match(texto(await manejarInteraccion(i, grande.d)), /más de 10 MB/);
+
+  const falla = deps({ falla: true });
+  const r = await manejarInteraccion(
+    comando('entregar', undefined, false, [
+      { name: 'tipo', value: 'codigo' },
+      { name: 'contenido', value: 'XYZ' },
+    ]),
+    falla.d,
+  );
+  assert.match(texto(r), /No se pudo entregar/);
+  assert.deepEqual(falla.entregas, []);
+});
+
+test('/enviado avisa a quien recibe y /recibido avisa a quien regala, cada uno anotado al regalador correcto', async () => {
+  const env = deps();
+  const r1 = await manejarInteraccion(comando('enviado', 'Va por Andreani', false, [{ name: 'seguimiento', value: 'AR123' }]), env.d);
+  assert.match(texto(r1), /Le avisé a Beto/);
+  assert.equal(env.enviados[0].a, 'Beto');
+  assert.equal(env.enviados[0].titulo, 'Tu regalo está en camino');
+  assert.match(env.enviados[0].campos, /AR123/);
+  assert.deepEqual(env.entregas, ['7:1:en_camino:false']);
+
+  const rec = deps();
+  const r2 = await manejarInteraccion(comando('recibido', '¡Me encantó!'), rec.d);
+  assert.match(texto(r2), /Le avisé a quien te regaló/);
+  assert.ok(!texto(r2).includes('Caro'), 'no revela quién le regaló');
+  assert.equal(rec.enviados[0].a, 'Caro');
+  assert.equal(rec.enviados[0].titulo, 'Ana recibió tu regalo');
+  assert.deepEqual(rec.entregas, ['7:3:recibido:false']);
 });
 
 test('todos los comandos definidos tienen manejador', async () => {

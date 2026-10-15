@@ -112,13 +112,28 @@ test('mandarDM abre el canal privado y manda el embed; los errores se explican',
     ],
     pedidos,
   );
-  await mandarDM('tok', '42', contenido.embed, f);
+  await mandarDM('tok', '42', contenido.embed, undefined, f);
   assert.ok(pedidos[0].url.endsWith('/users/@me/channels'));
   assert.equal(JSON.parse(String(pedidos[0].init?.body)).recipient_id, '42');
   assert.ok(pedidos[1].url.endsWith('/channels/canal1/messages'));
 
+  const conArchivo: { url: string; init?: RequestInit }[] = [];
+  const f3 = fetchFalso(
+    [
+      { status: 200, body: { id: 'canal1' } },
+      { status: 200, body: { id: 'msg2' } },
+    ],
+    conArchivo,
+  );
+  await mandarDM('tok', '42', contenido.embed, { nombre: 'entrada.pdf', tipo: 'application/pdf', datos: new Uint8Array([1]) }, f3);
+  const cuerpo = conArchivo[1].init?.body as FormData;
+  assert.ok(cuerpo instanceof FormData, 'con archivo el mensaje va como multipart');
+  assert.equal((cuerpo.get('files[0]') as File).name, 'entrada.pdf');
+  assert.equal(JSON.parse(String(cuerpo.get('payload_json'))).attachments[0].filename, 'entrada.pdf');
+  assert.ok(!('Content-Type' in (conArchivo[1].init?.headers as Record<string, string>)), 'fetch arma el boundary solo');
+
   const f2 = fetchFalso([{ status: 403, body: { code: 50007, message: 'Cannot send messages to this user' } }], []);
-  await assert.rejects(mandarDM('tok', '42', contenido.embed, f2), (e: ErrorDiscord) => {
+  await assert.rejects(mandarDM('tok', '42', contenido.embed, undefined, f2), (e: ErrorDiscord) => {
     assert.equal(e.message, 'Tiene cerrados los mensajes privados de miembros del server.');
     return true;
   });

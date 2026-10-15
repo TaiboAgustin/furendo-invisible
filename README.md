@@ -15,8 +15,9 @@ Corre en [Cloudflare Workers](https://developers.cloudflare.com/workers/) con un
 - Aviso a cada uno por mensaje privado de Discord, con mail de respaldo, y reintento de los que fallan.
 
 - Comandos del bot para hablar con tu amigo invisible sin revelar quién sos.
+- Entregas: regalos virtuales anónimos por el bot (keys de Steam, códigos, links o archivos) y seguimiento de los físicos.
 
-Lo que viene: las entregas y la revelación.
+Lo que viene: las bajas con reacomodo y la revelación.
 
 ## Comandos del bot
 
@@ -27,9 +28,14 @@ Lo que viene: las entregas y la revelación.
 | `/preguntar` | Le manda una pregunta a tu amigo invisible sin decir quién sos. |
 | `/responder` | Le contesta a quien te regala. |
 | `/direccion` | La dirección para mandarle el regalo. |
+| `/entregar` | Le pasa un regalo virtual a tu amigo invisible: una key de Steam (con link para activarla), un código, un link o un archivo de hasta 10 MB. Solo por privado con el bot. |
+| `/enviado` | Avisa que despachaste el regalo físico, con código de seguimiento opcional. |
+| `/recibido` | Confirma que te llegó tu regalo y le avisa a quien te lo mandó. |
 | `/ayuda` | Cómo funciona todo. |
 
-Todas las respuestas del bot son efímeras: las ve solo quien usó el comando, aunque lo use en un canal del server. Los mensajes no se guardan en ningún lado: el bot los reenvía y listo.
+Todas las respuestas del bot son efímeras: las ve solo quien usó el comando, aunque lo use en un canal del server. Los mensajes y los regalos virtuales no se guardan en ningún lado: el bot los reenvía y listo. Del regalo solo queda anotado su estado (en camino, entregado o recibido), que el panel muestra sin decir quién se lo mandó a quién.
+
+**Sobre las keys de Steam:** comprá en tiendas oficiales (Humble, Fanatical, Green Man Gaming, Nuuvem…), fijate que la key sirva para Argentina y evitá los mercados grises, donde a veces se revocan.
 
 Para activarlos, después de publicar:
 
