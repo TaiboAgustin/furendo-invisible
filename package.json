@@ -1,0 +1,23 @@
+{
+  "name": "furendo-invisible",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sorteo de amigo invisible con un bot de Discord como puente anónimo.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply furendo-invisible --local",
+    "db:migrate:remote": "wrangler d1 migrations apply furendo-invisible --remote",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261015.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.151.0"
+  }
+}

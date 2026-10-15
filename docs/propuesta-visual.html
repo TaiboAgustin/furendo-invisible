@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Furendo Invisible · propuesta visual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Figtree:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --atardecer:#F26B1D;
+  --mandarina:#FFB24A;
+  --carbon:#141519;
+  --carbon-2:#1E1F25;
+  --carbon-3:#2A2C34;
+  --papel:#FFF1DF;
+  --pino:#2F8F6A;
+  --tinta:#141519;
+  --texto:#F4EEE6;
+  --texto-2:#A9A6B0;
+  --sunset:linear-gradient(180deg,#E8611A 0%,#F58A2C 55%,#FFC071 100%);
+  --display:'Bricolage Grotesque',system-ui,sans-serif;
+  --body:'Figtree',system-ui,sans-serif;
+  --mono:'DM Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--carbon);color:var(--texto);font-family:var(--body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--mandarina);outline-offset:3px;border-radius:6px}
+
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+.meta{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--texto-2)}
+
+/* ---------- Encabezado de la propuesta ---------- */
+.doc-head{padding:56px 0 32px;display:grid;gap:12px}
+.doc-head h1{font-family:var(--display);font-weight:800;font-size:clamp(40px,7vw,76px);line-height:.95;letter-spacing:-.03em;margin:0}
+.doc-head h1 em{font-style:normal;color:var(--atardecer)}
+.doc-head p{max-width:60ch;color:var(--texto-2);margin:0}
+
+.section-title{font-family:var(--display);font-weight:800;font-size:28px;letter-spacing:-.02em;margin:0 0 6px}
+.section-sub{color:var(--texto-2);margin:0 0 24px;max-width:62ch}
+section{padding:40px 0;border-top:1px solid var(--carbon-3)}
+
+/* ---------- Sistema ---------- */
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.sw{border-radius:16px;padding:14px;min-height:120px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;border:2px solid var(--tinta);box-shadow:0 0 0 1px var(--carbon-3)}
+.sw b{font-family:var(--display);font-weight:800;font-size:18px}
+.sw span{font-family:var(--mono);font-size:12px}
+.type{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:12px}
+.type > div{background:var(--carbon-2);border-radius:16px;padding:20px}
+.type .big{font-family:var(--display);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.03em}
+.type .bod{font-size:17px}
+.type .mo{font-family:var(--mono);font-size:15px}
+
+/* ---------- Marco de la app ---------- */
+.app{border-radius:24px;overflow:hidden;background:var(--carbon-2);border:1px solid var(--carbon-3)}
+.banner{height:150px;background:var(--sunset);position:relative}
+.banner::after{content:"";position:absolute;inset:auto 0 0 0;height:40%;background:repeating-linear-gradient(90deg,transparent 0 22px,rgba(20,21,25,.06) 22px 23px)}
+.app-head{padding:0 32px 24px;display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;position:relative}
+.logo{width:112px;height:112px;border-radius:28px;background:#FFA62B;border:6px solid var(--carbon-2);display:grid;place-items:center;flex:none;margin-top:-56px}
+.logo span{font-family:'Figtree',sans-serif;font-weight:600;font-size:15px;color:#111;letter-spacing:-.02em}
+.logo sup{font-size:8px}
+.app-title{flex:1;min-width:240px;padding-top:16px}
+.app-title h2{font-family:var(--display);font-weight:800;font-size:clamp(30px,4.5vw,44px);line-height:1;letter-spacing:-.03em;margin:6px 0 10px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:8px;background:var(--carbon-3);color:var(--texto)}
+.chip.o{background:rgba(242,107,29,.16);color:var(--mandarina)}
+
+.app-body{padding:8px 32px 32px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:28px}
+@media (max-width:860px){.app-body{grid-template-columns:1fr}}
+
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px;flex-wrap:wrap}
+.bar h3{font-family:var(--display);font-weight:800;font-size:20px;margin:0}
+.ghost{font:500 14px var(--body);color:var(--texto);background:transparent;border:1px solid var(--carbon-3);border-radius:999px;padding:8px 14px;cursor:pointer}
+.ghost:hover{border-color:var(--texto-2)}
+
+/* ---------- Sobres (firma) ---------- */
+.sobres{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.sobre{position:relative;background:var(--papel);color:var(--tinta);border-radius:14px;padding:46px 14px 14px;min-height:150px;overflow:hidden;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.sobre::before{ /* solapa */
+  content:"";position:absolute;left:0;right:0;top:0;height:58px;background:#F6DDBE;
+  clip-path:polygon(0 0,100% 0,50% 100%);transform-origin:top;transition:transform .45s ease, background .3s;
+  transform:scaleY(.35);
+}
+.sobre .nom{font-family:var(--display);font-weight:800;font-size:20px;letter-spacing:-.02em;line-height:1.1}
+.sobre .dc{font-family:var(--mono);font-size:12px;color:#6B5A44;margin-top:2px}
+.sobre .st{margin-top:12px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--pino);flex:none}
+.st.warn{color:#B4471A}.st.warn .dot{background:var(--atardecer)}
+.sello{position:absolute;left:50%;top:40px;width:44px;height:44px;margin-left:-22px;border-radius:50%;background:var(--atardecer);border:3px solid var(--tinta);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:17px;color:var(--tinta);transform:scale(0) rotate(-30deg);transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.sobre.cerrado::before{transform:scaleY(1);background:#F0CFA6}
+.sobre.cerrado .sello{transform:scale(1) rotate(-8deg)}
+.sobre.cerrado .nom,.sobre.cerrado .dc,.sobre.cerrado .st{visibility:hidden}
+.sobre .tapa{display:none;position:absolute;inset:auto 14px 14px 14px;font-family:var(--mono);font-size:11px;color:#6B5A44;line-height:1.35}
+.sobre.cerrado .tapa{display:block}
+.sobre .para{font-family:var(--display);font-weight:800;font-size:16px;color:var(--tinta);display:block;margin-bottom:2px}
+
+/* ---------- Panel lateral ---------- */
+.side{display:grid;gap:14px;align-content:start}
+.card{background:var(--carbon);border-radius:18px;padding:18px}
+.card h4{font-family:var(--display);font-weight:800;font-size:17px;margin:0 0 4px}
+.card p{margin:0;color:var(--texto-2);font-size:14px}
+.sortear{
+  width:100%;margin-top:14px;cursor:pointer;
+  font:800 22px var(--display);letter-spacing:-.02em;color:var(--tinta);
+  background:var(--sunset);border:3px solid var(--tinta);border-radius:18px;padding:16px 18px;
+  box-shadow:0 0 0 2px var(--atardecer), 0 6px 0 0 #8E3A0C;transition:transform .12s, box-shadow .12s;
+}
+.sortear:hover{transform:translateY(-1px)}
+.sortear:active{transform:translateY(4px);box-shadow:0 0 0 2px var(--atardecer),0 2px 0 0 #8E3A0C}
+.sortear[aria-pressed="true"]{background:var(--carbon-3);color:var(--texto);box-shadow:0 0 0 2px var(--carbon-3);border-color:var(--carbon-3)}
+.prog{height:10px;background:var(--carbon-3);border-radius:99px;overflow:hidden;margin:12px 0 8px}
+.prog i{display:block;height:100%;width:37.5%;background:var(--pino);border-radius:99px}
+.kv{display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-bottom:1px solid var(--carbon-3)}
+.kv:last-child{border:0}
+.kv span:first-child{color:var(--texto-2)}
+.kv span:last-child{font-family:var(--mono)}
+
+/* ---------- DM de Discord ---------- */
+.dm{background:#313338;border-radius:20px;padding:22px;font-family:'Figtree',sans-serif;max-width:620px}
+.msg{display:flex;gap:14px}
+.ava{width:42px;height:42px;border-radius:50%;background:#FFA62B;flex:none;display:grid;place-items:center;font-weight:700;color:#111;font-size:12px}
+.who{font-weight:600;color:#F2F3F5}
+.who .bot{font-size:10px;background:#5865F2;color:#fff;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+.who time{font-size:12px;color:#949BA4;font-weight:400;margin-left:6px}
+.embed{margin-top:6px;background:#2B2D31;border-left:4px solid var(--atardecer);border-radius:6px;padding:14px 16px;color:#DBDEE1;font-size:14px;max-width:460px}
+.embed .eb-t{font-family:var(--display);font-weight:800;font-size:22px;color:#fff;letter-spacing:-.02em;margin:2px 0 8px}
+.embed .eb-k{font-size:12px;font-weight:700;color:#B5BAC1;margin-top:10px}
+.embed .eb-f{font-size:11px;color:#949BA4;margin-top:12px;font-family:var(--mono)}
+.cmds{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.cmds code{font-family:var(--mono);font-size:12px;background:#1E1F22;color:#C9CDFB;padding:3px 7px;border-radius:5px}
+
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.notes{display:grid;gap:14px}
+.note{background:var(--carbon-2);border-radius:16px;padding:16px 18px}
+.note b{font-family:var(--display);font-weight:800;font-size:17px;display:block;margin-bottom:2px}
+.note p{margin:0;color:var(--texto-2);font-size:15px}
+footer{padding:32px 0 56px;color:var(--texto-2);font-size:14px}
+
+@media (max-width:560px){
+  .wrap{padding:0 16px}
+  .app-head,.app-body{padding-left:18px;padding-right:18px}
+  .logo{width:92px;height:92px;border-radius:24px;margin-top:-46px}
+  .app-title{padding-top:0}
+  .sobres{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="doc-head">
+    <span class="meta">Furendos® · propuesta visual · oct 2026</span>
+    <h1>Furendo<br><em>Invisible</em></h1>
+    <p>El amigo invisible del server, con la misma cara que el server: el atardecer del banner, el cuadrado naranja del logo y el oscuro de Discord, que es donde pasa todo.</p>
+  </header>
+
+  <section>
+    <h2 class="section-title">Sistema</h2>
+    <p class="section-sub">Cinco colores sacados del perfil del server. El naranja manda y el papel aparece solo en los sobres, que son lo que se protege.</p>
+    <div class="swatches">
+      <div class="sw" style="background:var(--atardecer);color:var(--tinta)"><b>Atardecer</b><span>#F26B1D · acción principal</span></div>
+      <div class="sw" style="background:var(--mandarina);color:var(--tinta)"><b>Mandarina</b><span>#FFB24A · detalles, foco</span></div>
+      <div class="sw" style="background:var(--carbon-2);color:var(--texto)"><b>Carbón</b><span>#141519 · fondo, como Discord</span></div>
+      <div class="sw" style="background:var(--papel);color:var(--tinta)"><b>Papel</b><span>#FFF1DF · sobres</span></div>
+      <div class="sw" style="background:var(--pino);color:#fff"><b>Pino</b><span>#2F8F6A · listo, entregado</span></div>
+    </div>
+    <div class="type">
+      <div><span class="meta">Títulos · Bricolage Grotesque</span><div class="big">¿A quién<br>te tocó?</div></div>
+      <div><span class="meta">Texto · Figtree</span><p class="bod">Cargá a los furendos, sorteá y listo: el bot les avisa por privado a cada uno.</p></div>
+      <div><span class="meta">Datos · DM Mono</span><p class="mo">$50.000 – $70.000<br>@mica.rl · 24/12</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">Pantalla del evento</h2>
+    <p class="section-sub">Cada participante es un sobre. Antes del sorteo se ve abierto, con su estado. Al sortear se cierran y se sellan: ni el organizador ve qué hay adentro. Probá el botón.</p>
+
+    <div class="app">
+      <div class="banner" aria-hidden="true"></div>
+      <div class="app-head">
+        <div class="logo" aria-label="Logo de Furendos"><span>Furendos<sup>®</sup></span></div>
+        <div class="app-title">
+          <span class="meta">Amigo invisible</span>
+          <h2>Navidad 2026</h2>
+          <div class="chips">
+            <span class="chip o">$50.000 – $70.000</span>
+            <span class="chip">8 furendos</span>
+            <span class="chip">Revelación 24/12</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="app-body">
+        <div>
+          <div class="bar">
+            <h3>Participantes</h3>
+            <button class="ghost" type="button">Importar del formulario</button>
+          </div>
+          <div class="sobres" id="sobres"></div>
+        </div>
+
+        <aside class="side">
+          <div class="card">
+            <h4 id="estado-t">Todo listo para sortear</h4>
+            <p id="estado-p">Falta que 1 persona vincule Discord. Si sorteás igual, le avisamos por mail.</p>
+            <button class="sortear" id="sortear" type="button" aria-pressed="false">Sortear</button>
+          </div>
+          <div class="card">
+            <h4>Entregas</h4>
+            <p>Sin nombres: solo cuántos regalos van llegando.</p>
+            <div class="prog" aria-hidden="true"><i></i></div>
+            <div class="kv"><span>Recibidos</span><span>3 de 8</span></div>
+            <div class="kv"><span>En camino</span><span>2</span></div>
+            <div class="kv"><span>Virtuales entregados</span><span>1</span></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="grid2">
+      <div>
+        <h2 class="section-title">El aviso por Discord</h2>
+        <p class="section-sub">El bot habla con la misma voz y el mismo naranja. Es el único lugar donde aparece el nombre de tu furendo.</p>
+        <div class="dm">
+          <div class="msg">
+            <div class="ava">F®</div>
+            <div>
+              <div class="who">Furendo Invisible<span class="bot">APP</span><time>hoy a las 21:04</time></div>
+              <div class="embed">
+                <span class="meta" style="color:#949BA4">Navidad 2026</span>
+                <div class="eb-t">Te tocó regalarle a Mica</div>
+                <div>Presupuesto entre <b>$50.000 y $70.000</b>. Puede ser físico o virtual.</div>
+                <div class="eb-k">Lista de deseos</div>
+                <div>Algo de Rocket League, buzos (talle M), juegos indie.</div>
+                <div class="cmds"><code>/preguntar</code><code>/direccion</code><code>/entregar</code></div>
+                <div class="eb-f">Esto lo sabés solo vos. Revelación: 24/12.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="notes">
+        <h2 class="section-title">Por qué así</h2>
+        <div class="note"><b>Se siente parte del server</b><p>El banner y el logo encimado copian el perfil de Furendos en Discord. Entrar a la app es como abrir el server.</p></div>
+        <div class="note"><b>El sobre cuenta el secreto</b><p>Es el único elemento claro de la pantalla. Abierto: se puede editar. Sellado: ya nadie lo abre, ni vos.</p></div>
+        <div class="note"><b>Un solo botón importante</b><p>El naranja con borde negro, igual que el logo, aparece una vez por pantalla: Sortear, Revelar o Confirmar baja.</p></div>
+        <div class="note"><b>Oscuro a propósito</b><p>Todos la van a abrir viniendo de Discord a la noche. El papel y el naranja resaltan sin encandilar.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>Propuesta para Furendos®. Los datos son de ejemplo.</footer>
+</div>
+
+<script>
+const gente=[
+  ["Agus","@agus.trn",1],["Mica","@mica.rl",1],["Tomi","@tomi_cs",1],["Juli","@juli.png",0],
+  ["Fede","@fede404",1],["Lu","@lunita",1],["Nico","@nicorocket",1],["Sofi","@sofi.gg",1]
+];
+const cont=document.getElementById('sobres');
+gente.forEach(([n,d,ok])=>{
+  const el=document.createElement('article');
+  el.className='sobre';
+  el.innerHTML=`<div class="nom">${n}</div><div class="dc">${d}</div>
+  <div class="st ${ok?'':'warn'}"><span class="dot"></span>${ok?'Discord vinculado':'Falta vincular'}</div>
+  <div class="sello" aria-hidden="true">F</div>
+  <div class="tapa"><span class="para">${n}</span>Sellado · aviso enviado</div>`;
+  cont.appendChild(el);
+});
+const btn=document.getElementById('sortear');
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+btn.addEventListener('click',()=>{
+  const sobres=[...cont.children];
+  const cerrado=btn.getAttribute('aria-pressed')==='true';
+  if(cerrado){
+    sobres.forEach(s=>s.classList.remove('cerrado'));
+    btn.setAttribute('aria-pressed','false');btn.textContent='Sortear';
+    document.getElementById('estado-t').textContent='Todo listo para sortear';
+    document.getElementById('estado-p').textContent='Falta que 1 persona vincule Discord. Si sorteás igual, le avisamos por mail.';
+    return;
+  }
+  sobres.forEach((s,i)=>{
+    const delay=reduce?0:i*90;
+    setTimeout(()=>{
+      if(!reduce){s.style.transform=`translateY(-6px) rotate(${(i%2?1:-1)*3}deg)`;
+        setTimeout(()=>{s.style.transform='';},260);}
+      s.classList.add('cerrado');
+    },delay);
+  });
+  btn.setAttribute('aria-pressed','true');btn.textContent='Deshacer demo';
+  document.getElementById('estado-t').textContent='Sorteo hecho';
+  document.getElementById('estado-p').textContent='8 sobres sellados. 7 avisos por Discord y 1 por mail.';
+});
+</script>
+</body>
+</html>
