@@ -3,9 +3,11 @@
 // ve quien usó el comando), así nada se filtra si alguien lo usa en un canal.
 
 import type { Contenido, Destinatario, ResultadoAviso } from './avisos.ts';
-import { TIPOS_REGALO, type NombreComando, type TipoRegalo } from './comandos.ts';
+import { MAX_DESEOS, TIPOS_REGALO, type NombreComando, type TipoRegalo } from './comandos.ts';
 import {
   NARANJA,
+  embedDeseos,
+  embedDeseosActualizados,
   embedEnCamino,
   embedPregunta,
   embedRecibido,
@@ -28,7 +30,8 @@ export type Interaccion = {
   type: number; // 1 = ping, 2 = comando
   data?: {
     name: string;
-    options?: { name: string; value: unknown }[];
+    // Con subcomandos, el primero trae sus propias opciones adentro.
+    options?: { name: string; value?: unknown; type?: number; options?: { name: string; value: unknown }[] }[];
     resolved?: { attachments?: Record<string, AdjuntoDiscord> };
   };
   user?: UsuarioDiscord; // en privado
@@ -103,6 +106,18 @@ export type Deps = {
   /** Anota cómo va el regalo de `regaladorId`. Nunca guarda el contenido. */
   registrarEntrega(eventoId: number, regaladorId: number, estado: EstadoEntrega, virtual: boolean): Promise<void>;
   descargar(url: string): Promise<Uint8Array>;
+  /** El evento en armado o sorteado en el que participa, con su lista de deseos. */
+  participacion(personaId: number): Promise<Participacion | null>;
+  guardarDeseos(participacionId: number, deseos: string | null): Promise<void>;
+};
+
+export type Participacion = {
+  id: number;
+  evento: string;
+  sorteado: boolean;
+  deseos: string | null;
+  /** Solo después del sorteo: a quién avisarle que cambió la lista. */
+  regalador: Destinatario | null;
 };
 
 // ---------- Textos ----------
@@ -112,6 +127,7 @@ const AYUDA = [
   '',
   '`/unirme` — vincula tu cuenta (usalo en el server).',
   '`/mi-amigo` — te recuerda a quién le regalás y qué le gusta.',
+  '`/deseos` — armá tu lista de deseos (`agregar`, `ver`, `borrar`). La ve quien te regala.',
   '`/preguntar` — le manda una pregunta a tu amigo invisible sin decir quién sos.',
   '`/responder` — le contesta a quien te regala.',
   '`/direccion` — la dirección para mandarle el regalo.',
@@ -132,6 +148,70 @@ function opcion(i: Interaccion, nombre: string): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
+const SUBCOMANDO = 1;
+
+function subcomando(i: Interaccion): { nombre: string; opcion: (n: string) => string } {
+  const sub = i.data?.options?.find((o) => o.type === SUBCOMANDO);
+  return {
+    nombre: sub?.name ?? '',
+    opcion: (n) => {
+      const v = sub?.options?.find((o) => o.name === n)?.value;
+      return typeof v === 'string' ? v.trim() : '';
+    },
+  };
+}
+
+async function manejarDeseos(i: Interaccion, persona: PersonaBot, deps: Deps): Promise<RespuestaInmediata> {
+  const p = await deps.participacion(persona.id);
+  if (!p) return responder('No estás anotado en ningún amigo invisible en curso.');
+  const sub = subcomando(i);
+
+  if (sub.nombre === 'ver') {
+    return responder(
+      p.deseos
+        ? embedDeseos(p.evento, p.deseos)
+        : 'Tu lista está vacía. Sumá cosas con `/deseos agregar`.',
+    );
+  }
+
+  let nueva: string | null;
+  if (sub.nombre === 'agregar') {
+    const texto = sub.opcion('texto').replace(/\s*\n+\s*/g, ' ');
+    if (!texto) return responder('Escribí qué te gustaría que te regalen.');
+    nueva = [p.deseos, `• ${texto}`].filter(Boolean).join('\n');
+    if (nueva.length > MAX_DESEOS) {
+      return responder(`Tu lista ya es muy larga (máximo ${MAX_DESEOS} caracteres). Usá \`/deseos borrar\` y armala de nuevo más corta.`);
+    }
+  } else if (sub.nombre === 'borrar') {
+    if (!p.deseos) return responder('Tu lista ya estaba vacía.');
+    nueva = null;
+  } else {
+    return responder('Usá `/deseos agregar`, `/deseos ver` o `/deseos borrar`.');
+  }
+
+  await deps.guardarDeseos(p.id, nueva);
+  const confirmacion = nueva ? embedDeseos(p.evento, nueva) : null;
+
+  // Después del sorteo, quien te regala se entera del cambio (sin que vos sepas quién es).
+  let extra = '';
+  if (p.sorteado && p.regalador) {
+    const r = await deps.enviar(p.regalador, {
+      embed: embedDeseosActualizados(p.evento, persona.name, nueva),
+      mail: mailReenvio(
+        p.evento,
+        'Tu amigo invisible actualizó su lista de deseos',
+        nueva ? `${persona.name} ahora quiere:\n\n${nueva}` : `${persona.name} borró su lista de deseos.`,
+        '',
+      ),
+    });
+    extra = r.ok ? ' Le avisé a quien te regala.' : ' No le pude avisar a quien te regala, pero lo va a ver con /mi-amigo.';
+  }
+
+  if (!confirmacion) return responder(`Listo, tu lista quedó vacía.${extra}`);
+  confirmacion.footer = { text: `Listo, quedó guardada.${extra}` };
+  return responder(confirmacion);
+}
+
 export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Respuesta> {
   if (i.type === 1) return { type: 1 };
   if (i.type !== 2 || !i.data) return responder('No entendí ese pedido.');
@@ -150,6 +230,9 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
       `Listo, ${persona.name}: tu cuenta quedó vinculada. Cuando se haga el sorteo te escribo por privado.`,
     );
   }
+
+  // Funciona antes y después del sorteo.
+  if (comando === 'deseos') return manejarDeseos(i, persona, deps);
 
   const ctx = await deps.contexto(persona.id);
   if (ctx === 'sin-sortear') return responder('Todavía no se hizo el sorteo. Cuando esté, te aviso por privado.');
