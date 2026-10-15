@@ -3,6 +3,11 @@
   "name": "furendo-invisible",
   "main": "src/index.tsx",
   "compatibility_date": "2026-09-01",
+  "vars": {
+    // Clave pública de la aplicación de Discord (Developer Portal → General Information).
+    // No es secreta: sirve para comprobar que los comandos vienen de Discord.
+    "DISCORD_PUBLIC_KEY": "5854ff3c94c3dbc0d899faddd4962cd64c8b99ac57359a956d073b50844abbb5"
+  },
   "assets": {
     "directory": "./public"
   },

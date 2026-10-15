@@ -79,6 +79,28 @@ export function embedPrueba(nombre: string): Embed {
   };
 }
 
+/** Pregunta de quien regala a quien recibe. No dice quién pregunta. */
+export function embedPregunta(evento: string, texto: string): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: 'Tu amigo invisible te pregunta',
+    description: recortar(texto, 4000),
+    color: NARANJA,
+    footer: { text: 'Para contestarle usá /responder. Quién te pregunta sigue siendo un secreto.' },
+  };
+}
+
+/** Respuesta de quien recibe a quien le regala. Quien regala ya sabe a quién le regala. */
+export function embedRespuesta(evento: string, quienResponde: string, texto: string): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: recortar(`${quienResponde} te respondió`, 256),
+    description: recortar(texto, 4000),
+    color: NARANJA,
+    footer: { text: 'Para seguir la charla, usá /preguntar.' },
+  };
+}
+
 // ---------- Mail ----------
 
 export type Mail = { subject: string; text: string; html: string };
@@ -133,6 +155,16 @@ export function mailSorteo(d: DatosAviso): Mail {
 </div></body></html>`;
 
   return { subject: `Tu amigo invisible de ${d.evento}`, text, html };
+}
+
+/** Mensaje del bot reenviado por mail, para quien no tiene Discord. */
+export function mailReenvio(evento: string, titulo: string, texto: string, pie: string): Mail {
+  const plano = `${titulo}\n\n${texto}\n\n${pie}\n— Furendo Invisible`;
+  return {
+    subject: `${evento}: ${titulo}`,
+    text: plano,
+    html: `<p><b>${escapar(titulo)}</b></p><p>${escapar(texto).replace(/\n/g, '<br>')}</p><p style="color:#777">${escapar(pie)}</p>`,
+  };
 }
 
 export function mailPrueba(nombre: string): Mail {

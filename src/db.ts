@@ -2,6 +2,7 @@ import type { EstadoAviso, Evento, Participante, Persona } from './tipos.ts';
 import type { FilaImportada } from './importar.ts';
 import type { Asignacion } from './sorteo.ts';
 import type { DatosAviso } from './mensajes.ts';
+import type { Contexto } from './interacciones.ts';
 
 export type DatosEvento = Pick<
   Evento,
@@ -309,6 +310,87 @@ export async function reintentarAvisos(db: D1Database, eventoId: number): Promis
     .prepare('UPDATE assignments SET notify_error = NULL WHERE event_id = ? AND notified_at IS NULL')
     .bind(eventoId)
     .run();
+}
+
+// ---------- Bot ----------
+
+/**
+ * La persona que usa un comando. Si todavía no estaba vinculada pero su usuario
+ * coincide con el cargado, la vincula en el momento (es lo que hace /unirme).
+ */
+export async function personaDeDiscord(
+  db: D1Database,
+  usuario: { id: string; username: string },
+): Promise<{ id: number; name: string } | null> {
+  const vinculada = await db
+    .prepare('SELECT id, name FROM people WHERE discord_user_id = ?')
+    .bind(usuario.id)
+    .first<{ id: number; name: string }>();
+  if (vinculada) return vinculada;
+
+  const porUsuario = await db
+    .prepare('SELECT id, name FROM people WHERE discord_username = ? AND discord_user_id IS NULL')
+    .bind(usuario.username.toLowerCase())
+    .first<{ id: number; name: string }>();
+  if (!porUsuario) return null;
+  await vincularDiscord(db, porUsuario.id, usuario.id);
+  return porUsuario;
+}
+
+type FilaContacto = {
+  name: string;
+  email: string | null;
+  discord_user_id: string | null;
+  address: string | null;
+  wishlist: string | null;
+  sizes: string | null;
+  notes: string | null;
+};
+
+/** Datos del sorteo en curso para quien usa el bot: a quién le regala y quién le regala. */
+export async function contextoBot(
+  db: D1Database,
+  personaId: number,
+): Promise<Contexto | null | 'sin-sortear'> {
+  const actual = await db
+    .prepare(
+      `SELECT e.*, pa.id AS mi_participacion, pe.name AS mi_nombre
+       FROM participants pa JOIN events e ON e.id = pa.event_id JOIN people pe ON pe.id = pa.person_id
+       WHERE pa.person_id = ? AND pa.status = 'activo' AND e.status IN ('borrador', 'sorteado')
+       ORDER BY (e.status = 'sorteado') DESC, e.drawn_at DESC, e.id DESC LIMIT 1`,
+    )
+    .bind(personaId)
+    .first<Evento & { mi_participacion: number; mi_nombre: string }>();
+  if (!actual) return null;
+  if (actual.status !== 'sorteado') return 'sin-sortear';
+
+  // El otro extremo de mi asignación: si busco por giver_id obtengo a quién le regalo, y al revés.
+  const otro = (yoComo: 'giver_id' | 'receiver_id', otroComo: 'giver_id' | 'receiver_id') =>
+    db
+      .prepare(
+        `SELECT pe.name, pe.email, pe.discord_user_id, pe.address, pa.wishlist, pa.sizes, pa.notes
+         FROM assignments a JOIN participants pa ON pa.id = a.${otroComo} JOIN people pe ON pe.id = pa.person_id
+         WHERE a.event_id = ? AND a.${yoComo} = ?`,
+      )
+      .bind(actual.id, actual.mi_participacion)
+      .first<FilaContacto>();
+  const [receptor, regalador] = await Promise.all([otro('giver_id', 'receiver_id'), otro('receiver_id', 'giver_id')]);
+  if (!receptor || !regalador) return null;
+
+  return {
+    evento: actual,
+    yo: { name: actual.mi_nombre },
+    receptor: {
+      nombre: receptor.name,
+      discordUserId: receptor.discord_user_id,
+      email: receptor.email,
+      address: receptor.address,
+      wishlist: receptor.wishlist,
+      sizes: receptor.sizes,
+      notes: receptor.notes,
+    },
+    regalador: { nombre: regalador.name, discordUserId: regalador.discord_user_id, email: regalador.email },
+  };
 }
 
 // ---------- Personas ----------
