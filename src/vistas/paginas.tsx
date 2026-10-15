@@ -265,7 +265,7 @@ export function PaginaParticipante(props: {
             <Campo etiqueta="Nombre" nombre="name" valor={p?.name} requerido />
             <div class="fila-campos">
               <Campo etiqueta="Usuario de Discord" nombre="discord_username" valor={p?.discord_username} placeholder="mica.rl" />
-              <Campo etiqueta="Mail" nombre="email" tipo="email" valor={p?.email} placeholder="mica@gmail.com" />
+              <Campo etiqueta="Mail" nombre="email" tipo="email" valor={p?.email} placeholder="mica@ejemplo.com" />
             </div>
             <Campo
               etiqueta="Dirección"
