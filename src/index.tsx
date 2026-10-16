@@ -159,6 +159,7 @@ app.post('/discord/interacciones', async (c) => {
     descargar: descargarAdjunto,
     participacion: (id) => db.participacionBot(c.env.DB, id),
     guardarDeseos: (id, deseos) => db.guardarDeseos(c.env.DB, id, deseos),
+    guardarTalles: (id, talles) => db.guardarTalles(c.env.DB, id, talles),
     pedirVinculo: (u, mail) => db.pedirVinculo(c.env.DB, u, mail),
   });
 

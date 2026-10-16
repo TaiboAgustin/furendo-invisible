@@ -33,6 +33,7 @@ Después de la revelación, el panel muestra quién le regaló a quién y `/mi-a
 |---|---|
 | `/unirme` | Vincula tu cuenta de Discord con tu ficha (se usa en el server). Si no te encuentra por usuario, `/unirme mail:` con el mail del formulario deja un pedido que el organizador confirma desde el panel. |
 | `/mi-amigo` | Te recuerda a quién le regalás, su lista de deseos y el presupuesto. |
+| `/talles` | Tus talles de remera, buzo, pantalón, zapatillas u otro, por si te regalan ropa. Sin opciones muestra los cargados; `borrar` los vacía. Si los cambiás después del sorteo, a quien te regala le llega un aviso. |
 | `/deseos` | Tu lista de deseos: `agregar`, `ver` o `borrar`. Funciona antes y después del sorteo; si la cambiás después, a quien te regala le llega un aviso. |
 | `/preguntar` | Le manda una pregunta a tu amigo invisible sin decir quién sos. |
 | `/responder` | Le contesta a quien te regala. |

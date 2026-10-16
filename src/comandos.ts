@@ -12,6 +12,19 @@ const ADJUNTO = 11;
 /** Largo máximo de la lista de deseos: lo que entra en un campo de un mensaje de Discord. */
 export const MAX_DESEOS = 1000;
 
+const BOOLEANO = 5;
+const TALLES_ROPA = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'].map((t) => ({ name: t, value: t }));
+
+/** Cada prenda con la etiqueta que se muestra. El orden es el de la lista que ve quien regala. */
+export const PRENDAS = {
+  remera: 'Remera',
+  buzo: 'Buzo / campera',
+  pantalon: 'Pantalón',
+  zapatillas: 'Zapatillas',
+  otro: 'Otro',
+} as const;
+export type Prenda = keyof typeof PRENDAS;
+
 export const TIPOS_REGALO = {
   steam: 'Key de Steam',
   codigo: 'Código o gift card',
@@ -79,6 +92,20 @@ export const COMANDOS = [
       },
       { type: SUBCOMANDO, name: 'ver', description: 'Muestra tu lista de deseos' },
       { type: SUBCOMANDO, name: 'borrar', description: 'Vacía tu lista para empezar de nuevo' },
+    ],
+  },
+  {
+    name: 'talles',
+    description: 'Tus talles, por si te regalan ropa. Sin opciones, te muestra los que cargaste',
+    contexts: [SERVER, PRIVADO_CON_BOT],
+    integration_types: [INSTALADO_EN_SERVER],
+    options: [
+      { type: TEXTO, name: 'remera', description: 'Talle de remera', choices: TALLES_ROPA },
+      { type: TEXTO, name: 'buzo', description: 'Talle de buzo o campera', choices: TALLES_ROPA },
+      { type: TEXTO, name: 'pantalon', description: 'Talle de pantalón (ej. 42, M)', max_length: 20 },
+      { type: TEXTO, name: 'zapatillas', description: 'Número de zapatillas (ej. 41, 42.5)', max_length: 20 },
+      { type: TEXTO, name: 'otro', description: 'Algo más: gorra, anillo, calza… (ej. "Gorra: 58")', max_length: 100 },
+      { type: BOOLEANO, name: 'borrar', description: 'Borra todos tus talles para cargarlos de nuevo' },
     ],
   },
   {

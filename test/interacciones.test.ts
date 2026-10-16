@@ -49,6 +49,7 @@ function deps(
   const enviados: Enviado[] = [];
   const entregas: string[] = [];
   const deseosGuardados: (string | null)[] = [];
+  const tallesGuardados: (string | null)[] = [];
   const d: Deps = {
     persona: async () => (opts.persona === false ? null : { id: 1, name: 'Ana' }),
     contexto: async () => (opts.contexto === undefined ? ctx : opts.contexto),
@@ -69,17 +70,20 @@ function deps(
     descargar: async () => new Uint8Array([1, 2, 3]),
     participacion: async () =>
       opts.participacion === undefined
-        ? { id: 1, evento: 'Navidad 2026', sorteado: false, deseos: null, regalador: null }
+        ? { id: 1, evento: 'Navidad 2026', sorteado: false, deseos: null, talles: null, regalador: null }
         : opts.participacion,
     guardarDeseos: async (_id, deseos) => {
       deseosGuardados.push(deseos);
+    },
+    guardarTalles: async (_id, talles) => {
+      tallesGuardados.push(talles);
     },
     pedirVinculo: async (_u, mail) => {
       pedidos.push(mail);
       return opts.pedido ?? 'pedido';
     },
   };
-  return { d, enviados, entregas, deseosGuardados, pedidos };
+  return { d, enviados, entregas, deseosGuardados, tallesGuardados, pedidos };
 }
 
 const deseos = (sub: string, texto?: string): Interaccion => ({
@@ -327,6 +331,57 @@ test('/unirme de alguien ya vinculado no hace un pedido', async () => {
   const { d, pedidos } = deps();
   assert.match(texto(await manejarInteraccion(unirme('ana@ejemplo.com'), d)), /tu cuenta quedó vinculada/);
   assert.deepEqual(pedidos, []);
+});
+
+const talles = (opciones: Record<string, unknown>): Interaccion => ({
+  type: 2,
+  data: { name: 'talles', options: Object.entries(opciones).map(([name, value]) => ({ name, value })) },
+  user: { id: '111', username: 'ana' },
+});
+
+const participacion = (extra: Partial<Participacion> = {}): Participacion => ({
+  id: 1,
+  evento: 'Navidad 2026',
+  sorteado: false,
+  deseos: null,
+  talles: null,
+  regalador: null,
+  ...extra,
+});
+
+test('/talles sin opciones muestra lo cargado o explica cómo cargar', async () => {
+  assert.match(texto(await manejarInteraccion(talles({}), deps().d)), /Todavía no cargaste talles/);
+  const r = await manejarInteraccion(talles({}), deps({ participacion: participacion({ talles: 'Remera: M' }) }).d);
+  assert.match(texto(r), /Remera: M/);
+});
+
+test('/talles guarda solo lo que cambia, antes del sorteo sin avisar a nadie', async () => {
+  const { d, tallesGuardados, enviados } = deps({ participacion: participacion({ talles: 'Remera: M' }) });
+  const r = await manejarInteraccion(talles({ zapatillas: '42', buzo: 'L' }), d);
+  assert.deepEqual(tallesGuardados, ['Remera: M\nBuzo / campera: L\nZapatillas: 42']);
+  assert.match(texto(r), /Zapatillas: 42/);
+  assert.equal(enviados.length, 0);
+});
+
+test('/talles después del sorteo le avisa a quien regala sin revelarlo', async () => {
+  const { d, enviados } = deps({
+    participacion: participacion({ sorteado: true, regalador: { nombre: 'Caro', discordUserId: '333', email: null } }),
+  });
+  const r = await manejarInteraccion(talles({ remera: 'XL' }), d);
+  assert.equal(enviados[0].a, 'Caro');
+  assert.equal(enviados[0].titulo, 'Ana actualizó sus talles');
+  assert.match(enviados[0].descripcion!, /Remera: XL/);
+  assert.ok(!JSON.stringify(r).includes('Caro'));
+});
+
+test('/talles borrar los vacía, y con talles nuevos empieza de cero', async () => {
+  const solo = deps({ participacion: participacion({ talles: 'Remera: M' }) });
+  assert.match(texto(await manejarInteraccion(talles({ borrar: true }), solo.d)), /borré tus talles/);
+  assert.deepEqual(solo.tallesGuardados, [null]);
+
+  const conNuevos = deps({ participacion: participacion({ talles: 'Remera: M' }) });
+  await manejarInteraccion(talles({ borrar: true, zapatillas: '40' }), conNuevos.d);
+  assert.deepEqual(conNuevos.tallesGuardados, ['Zapatillas: 40']);
 });
 
 test('todos los comandos definidos tienen manejador', async () => {
