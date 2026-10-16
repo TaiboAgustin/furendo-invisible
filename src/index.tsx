@@ -11,6 +11,7 @@ import { embedCambio, embedPrueba, embedVinculado, mailCambio, mailPrueba } from
 import { canales, configuracion } from './canales.ts';
 import { avisarRevelacion, revelarLoQueToca } from './revelacion.ts';
 import { firmaValida } from './firma.ts';
+import { neutralizar } from './neutro.ts';
 import { MAX_ARCHIVO, manejarInteraccion, type Interaccion } from './interacciones.ts';
 import type { Aviso } from './vistas/layout.tsx';
 import {
@@ -161,16 +162,33 @@ app.post('/discord/interacciones', async (c) => {
     guardarDeseos: (id, deseos) => db.guardarDeseos(c.env.DB, id, deseos),
     guardarTalles: (id, talles) => db.guardarTalles(c.env.DB, id, talles),
     pedirVinculo: (u, mail) => db.pedirVinculo(c.env.DB, u, mail),
+    neutralizar: (texto) => {
+      const ai = c.env.AI;
+      if (!ai) return Promise.reject(new Error('Workers AI no está configurado.'));
+      return neutralizar(texto, (modelo, entrada) => ai.run(modelo as never, entrada as never), c.env.NEUTRAL_MODEL || undefined);
+    },
+    guardarPendiente: (userId, data) => db.guardarPendiente(c.env.DB, userId, data),
+    tomarPendiente: (id, userId) => db.tomarPendiente(c.env.DB, id, userId),
   });
 
-  if (respuesta.type === 5) {
+  // Respuestas diferidas: se contesta "pensando…" y el resultado reemplaza ese mensaje después.
+  if (respuesta.type === 5 || respuesta.type === 6) {
     const { trabajo, ...pensando } = respuesta;
     const { application_id: appId, token } = interaccion;
+    const sobreBotones = respuesta.type === 6;
     if (appId && token) {
       c.executionCtx.waitUntil(
         trabajo()
-          .catch(() => ({ data: { content: 'Algo falló del lado del bot. Probá de nuevo.' } }))
-          .then((r) => completarRespuesta(appId, token, r.data)),
+          .then((r) => r.data)
+          .catch(() => ({ content: 'Algo falló del lado del bot. Probá de nuevo.' }) as { content?: string })
+          .then((d) =>
+            completarRespuesta(
+              appId,
+              token,
+              // Sobre un mensaje con botones, se limpian el texto anterior y los botones.
+              sobreBotones ? { content: d.content ?? '', embeds: 'embeds' in d ? d.embeds : [], components: [] } : d,
+            ),
+          ),
       );
     }
     return c.json(pensando);
@@ -657,5 +675,7 @@ export default {
   // Cada hora: revela los eventos cuya fecha llegó y sigue mandando los avisos pendientes.
   async scheduled(_evento: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(revelarLoQueToca(env).then((log) => log.forEach((l) => console.log(l))));
+    // Las vistas previas abandonadas no quedan guardadas.
+    ctx.waitUntil(db.limpiarPendientesVencidos(env.DB));
   },
 } satisfies ExportedHandler<Env>;

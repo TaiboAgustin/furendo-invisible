@@ -1,5 +1,8 @@
 export type Env = {
   DB: D1Database;
+  AI?: Ai;
+  /** Modelo de Workers AI para el tono neutro (opcional, hay uno por defecto). */
+  NEUTRAL_MODEL?: string;
   ADMIN_PASSWORD: string;
   SESSION_SECRET: string;
   // Opcionales: sin ellos la app funciona, pero no puede avisar por ese canal.

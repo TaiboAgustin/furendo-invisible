@@ -103,7 +103,7 @@ export async function mandarAlCanal(token: string, canalId: string, embed: Embed
 export async function completarRespuesta(
   appId: string,
   tokenInteraccion: string,
-  data: { content?: string; embeds?: Embed[] },
+  data: { content?: string; embeds?: Embed[]; components?: unknown[] },
   f: Fetch = fetch,
 ): Promise<void> {
   await f(`${API}/webhooks/${appId}/${tokenInteraccion}/messages/@original`, {

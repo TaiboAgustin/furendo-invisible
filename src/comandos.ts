@@ -13,6 +13,18 @@ const ADJUNTO = 11;
 export const MAX_DESEOS = 1000;
 
 const BOOLEANO = 5;
+
+/** Cómo sale el texto hacia tu amigo invisible. Por defecto, reescrito en tono neutro. */
+const TONO = {
+  type: TEXTO,
+  name: 'tono',
+  description: 'Cómo le llega tu mensaje (por defecto, neutro)',
+  choices: [
+    { name: 'Neutro: no se nota quién escribe', value: 'neutro' },
+    { name: 'Original: tal cual lo escribí', value: 'original' },
+  ],
+};
+
 const TALLES_ROPA = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'].map((t) => ({ name: t, value: t }));
 
 /** Cada prenda con la etiqueta que se muestra. El orden es el de la lista que ve quien regala. */
@@ -61,6 +73,7 @@ export const COMANDOS = [
     integration_types: [INSTALADO_EN_SERVER],
     options: [
       { type: TEXTO, name: 'mensaje', description: 'Lo que le querés preguntar', required: true, max_length: 1500 },
+      TONO,
     ],
   },
   {
@@ -130,6 +143,7 @@ export const COMANDOS = [
       },
       { type: TEXTO, name: 'mensaje', description: 'Unas palabras para acompañar el regalo', max_length: 1000 },
       { type: ADJUNTO, name: 'archivo', description: 'Un archivo: una entrada, un voucher, un dibujo…' },
+      TONO,
     ],
   },
   {
@@ -145,6 +159,7 @@ export const COMANDOS = [
         max_length: 200,
       },
       { type: TEXTO, name: 'mensaje', description: 'Algo que le quieras decir', max_length: 1000 },
+      TONO,
     ],
   },
   {
