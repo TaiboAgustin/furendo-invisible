@@ -43,9 +43,11 @@ function deps(
     falla?: boolean;
     participacion?: Participacion | null;
     pedido?: ResultadoPedido;
+    iaFalla?: boolean;
   } = {},
 ) {
   const pedidos: string[] = [];
+  const pendientes = new Map<string, { userId: string; data: unknown }>();
   const enviados: Enviado[] = [];
   const entregas: string[] = [];
   const deseosGuardados: (string | null)[] = [];
@@ -82,8 +84,23 @@ function deps(
       pedidos.push(mail);
       return opts.pedido ?? 'pedido';
     },
+    neutralizar: async (t) => {
+      if (opts.iaFalla) throw new Error('sin IA');
+      return `NEUTRO(${t})`;
+    },
+    guardarPendiente: async (userId, data) => {
+      const id = `p${pendientes.size + 1}`;
+      pendientes.set(id, { userId, data });
+      return id;
+    },
+    tomarPendiente: async (id, userId) => {
+      const p = pendientes.get(id);
+      if (!p || p.userId !== userId) return null;
+      pendientes.delete(id);
+      return p.data;
+    },
   };
-  return { d, enviados, entregas, deseosGuardados, tallesGuardados, pedidos };
+  return { d, enviados, entregas, deseosGuardados, tallesGuardados, pedidos, pendientes };
 }
 
 const deseos = (sub: string, texto?: string): Interaccion => ({
@@ -119,7 +136,7 @@ test('responde el ping de Discord', async () => {
 
 test('/preguntar le llega a quien recibe sin decir quién pregunta', async () => {
   const { d, enviados } = deps();
-  const r = await manejarInteraccion(comando('preguntar', '¿Qué talle usás?', true), d);
+  const r = await manejarInteraccion(comando('preguntar', '¿Qué talle usás?', true, [{ name: 'tono', value: 'original' }]), d);
   assert.match(texto(r), /le llegó a Beto/);
   assert.equal(enviados.length, 1);
   assert.equal(enviados[0].a, 'Beto');
@@ -162,6 +179,7 @@ test('/entregar una key de Steam: la tapa, arma el link para activarla y anota l
   const { d, enviados, entregas } = deps();
   const r = await manejarInteraccion(
     comando('entregar', 'Feliz navidad', false, [
+      { name: 'tono', value: 'original' },
       { name: 'tipo', value: 'steam' },
       { name: 'contenido', value: 'AAAAA-BBBBB-CCCCC' },
     ]),
@@ -218,7 +236,7 @@ test('/entregar rechaza archivos de más de 10 MB y no anota nada si falla el en
 
 test('/enviado avisa a quien recibe y /recibido avisa a quien regala, cada uno anotado al regalador correcto', async () => {
   const env = deps();
-  const r1 = await manejarInteraccion(comando('enviado', 'Va por Andreani', false, [{ name: 'seguimiento', value: 'AR123' }]), env.d);
+  const r1 = await manejarInteraccion(comando('enviado', 'Va por Andreani', false, [{ name: 'seguimiento', value: 'AR123' }, { name: 'tono', value: 'original' }]), env.d);
   assert.match(texto(r1), /Le avisé a Beto/);
   assert.equal(env.enviados[0].a, 'Beto');
   assert.equal(env.enviados[0].titulo, 'Tu regalo está en camino');
@@ -384,9 +402,109 @@ test('/talles borrar los vacía, y con talles nuevos empieza de cero', async () 
   assert.deepEqual(conNuevos.tallesGuardados, ['Zapatillas: 40']);
 });
 
+// ---------- Tono neutro ----------
+
+const boton = (customId: string, userId = '111'): Interaccion => ({
+  type: 3,
+  data: { name: '', custom_id: customId },
+  user: { id: userId, username: 'ana' },
+});
+
+async function vistaPrevia(r: Respuesta) {
+  assert.equal(r.type, 5, 'primero contesta "pensando…"');
+  if (r.type !== 5) throw new Error();
+  assert.equal(r.data.flags, 64);
+  const final = await r.trabajo();
+  const botones = (final.data.components?.[0] as { components: { custom_id: string; label: string }[] } | undefined)
+    ?.components;
+  return { texto: texto(final), botones };
+}
+
+test('/preguntar por defecto muestra la versión neutra con Enviar y Cancelar, sin mandar nada', async () => {
+  const { d, enviados } = deps();
+  const p = await vistaPrevia(await manejarInteraccion(comando('preguntar', 'che q talle usas?? jaja'), d));
+  assert.match(p.texto, /Así le va a llegar/);
+  assert.match(p.texto, /NEUTRO\(che q talle usas\?\? jaja\)/);
+  assert.deepEqual(p.botones!.map((b) => b.label), ['Enviar', 'Cancelar']);
+  assert.equal(enviados.length, 0);
+});
+
+test('Enviar manda la versión neutra y saca los botones', async () => {
+  const { d, enviados } = deps();
+  const p = await vistaPrevia(await manejarInteraccion(comando('preguntar', 'che q talle usas'), d));
+  const r = await manejarInteraccion(boton(p.botones![0].custom_id), d);
+  assert.equal(r.type, 7);
+  if (r.type !== 7) return;
+  assert.deepEqual(r.data.components, []);
+  assert.match(r.data.content, /le llegó a Beto/);
+  assert.equal(enviados[0].descripcion, 'NEUTRO(che q talle usas)');
+});
+
+test('Cancelar no manda nada, y la vista previa no se puede usar dos veces ni por otra persona', async () => {
+  const { d, enviados } = deps();
+  const p = await vistaPrevia(await manejarInteraccion(comando('preguntar', 'hola'), d));
+  const ajeno = await manejarInteraccion(boton(p.botones![0].custom_id, '666'), d);
+  assert.equal(ajeno.type, 7);
+  if (ajeno.type === 7) assert.match(ajeno.data.content, /ya no está/);
+
+  const cancelado = await manejarInteraccion(boton(p.botones![1].custom_id), d);
+  assert.equal(cancelado.type, 7);
+  if (cancelado.type === 7) assert.match(cancelado.data.content, /no se mandó nada/);
+  const otraVez = await manejarInteraccion(boton(p.botones![0].custom_id), d);
+  if (otraVez.type === 7) assert.match(otraVez.data.content, /ya no está/);
+  assert.equal(enviados.length, 0);
+});
+
+test('con tono original sale directo, y si falla la IA sugiere usarlo', async () => {
+  const directo = deps();
+  const r = await manejarInteraccion(
+    comando('preguntar', 'che q talle usas', false, [{ name: 'tono', value: 'original' }]),
+    directo.d,
+  );
+  assert.equal(r.type, 4);
+  assert.equal(directo.enviados[0].descripcion, 'che q talle usas');
+
+  const sinIa = deps({ iaFalla: true });
+  const p = await vistaPrevia(await manejarInteraccion(comando('preguntar', 'hola'), sinIa.d));
+  assert.match(p.texto, /tono: original/);
+  assert.equal(p.botones, undefined);
+});
+
+test('/entregar con mensaje: valida antes de la vista previa y al confirmar entrega con el texto neutro', async () => {
+  const { d, enviados, entregas } = deps();
+  const sinTipo = await manejarInteraccion(comando('entregar', 'Feliz navidad', false, [{ name: 'contenido', value: 'X' }]), d);
+  assert.match(texto(sinTipo), /Elegí qué tipo/);
+
+  const p = await vistaPrevia(
+    await manejarInteraccion(
+      comando('entregar', 'feliz navidad amigoo!!', false, [
+        { name: 'tipo', value: 'codigo' },
+        { name: 'contenido', value: 'ABC-123' },
+      ]),
+      d,
+    ),
+  );
+  await manejarInteraccion(boton(p.botones![0].custom_id), d);
+  assert.match(enviados[0].campos, /ABC-123/);
+  assert.match(enviados[0].campos, /NEUTRO\(feliz navidad amigoo!!\)/);
+  assert.deepEqual(entregas, ['7:1:entregado:true']);
+});
+
+test('/entregar sin mensaje no necesita vista previa', async () => {
+  const { d } = deps();
+  const r = await manejarInteraccion(
+    comando('entregar', undefined, false, [
+      { name: 'tipo', value: 'link' },
+      { name: 'contenido', value: 'https://ejemplo.com' },
+    ]),
+    d,
+  );
+  assert.equal(r.type, 4);
+});
+
 test('todos los comandos definidos tienen manejador', async () => {
   for (const c of COMANDOS) {
-    const r = texto(await manejarInteraccion(comando(c.name, 'x'), deps().d));
+    const r = texto(await manejarInteraccion(comando(c.name, 'x', false, [{ name: 'tono', value: 'original' }]), deps().d));
     assert.ok(!r.includes('todavía no existe'), `/${c.name} no está manejado`);
   }
 });

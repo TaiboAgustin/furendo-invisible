@@ -43,6 +43,12 @@ Después de la revelación, el panel muestra quién le regaló a quién y `/mi-a
 | `/recibido` | Confirma que te llegó tu regalo y le avisa a quien te lo mandó. |
 | `/ayuda` | Cómo funciona todo. |
 
+### Tono neutro
+
+Lo que sale de quien regala (`/preguntar` y las palabras que acompañan `/entregar` y `/enviado`) se reescribe por defecto en tono neutro con [Workers AI](https://developers.cloudflare.com/workers-ai/), para que la forma de escribir no delate quién es. Antes de mandarlo, el bot muestra cómo va a quedar con dos botones, **Enviar** y **Cancelar**: nada sale sin confirmación. Con `tono: original` el mensaje va tal cual.
+
+Mientras se espera la confirmación, el comando queda guardado (hasta 30 minutos) en `pending_messages`; se borra al tocar un botón o lo limpia el cron. El modelo por defecto es Mistral Small 3.1 y se puede cambiar con la variable `NEUTRAL_MODEL`.
+
 Todas las respuestas del bot son efímeras: las ve solo quien usó el comando, aunque lo use en un canal del server. Los mensajes y los regalos virtuales no se guardan en ningún lado: el bot los reenvía y listo. Del regalo solo queda anotado su estado (en camino, entregado o recibido), que el panel muestra sin decir quién se lo mandó a quién.
 
 **Sobre las keys de Steam:** comprá en tiendas oficiales (Humble, Fanatical, Green Man Gaming, Nuuvem…), fijate que la key sirva para Argentina y evitá los mercados grises, donde a veces se revocan.

@@ -3,6 +3,10 @@
   "name": "furendo-invisible",
   "main": "src/index.tsx",
   "compatibility_date": "2026-09-01",
+  // Workers AI: reescribe en tono neutro los mensajes de quien regala.
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     // Clave pública de la aplicación de Discord (Developer Portal → General Information).
     // No es secreta: sirve para comprobar que los comandos vienen de Discord.

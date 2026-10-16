@@ -407,6 +407,40 @@ export async function contextoBot(
   };
 }
 
+// ---------- Vistas previas en tono neutro ----------
+
+/** Minutos que espera una vista previa antes de vencer. */
+export const VENCE_VISTA_PREVIA_MIN = 30;
+
+export async function guardarPendiente(db: D1Database, discordUserId: string, data: unknown): Promise<string> {
+  const id = crypto.randomUUID().replace(/-/g, '');
+  await db
+    .prepare('INSERT INTO pending_messages (id, discord_user_id, data) VALUES (?, ?, ?)')
+    .bind(id, discordUserId, JSON.stringify(data))
+    .run();
+  return id;
+}
+
+/** Lo saca de la espera (solo quien lo creó y si no venció). Una vez tomado, ya no está. */
+export async function tomarPendiente(db: D1Database, id: string, discordUserId: string): Promise<unknown | null> {
+  const fila = await db
+    .prepare(
+      `DELETE FROM pending_messages
+       WHERE id = ? AND discord_user_id = ? AND created_at > datetime('now', ?)
+       RETURNING data`,
+    )
+    .bind(id, discordUserId, `-${VENCE_VISTA_PREVIA_MIN} minutes`)
+    .first<{ data: string }>();
+  return fila ? JSON.parse(fila.data) : null;
+}
+
+export async function limpiarPendientesVencidos(db: D1Database): Promise<void> {
+  await db
+    .prepare(`DELETE FROM pending_messages WHERE created_at <= datetime('now', ?)`)
+    .bind(`-${VENCE_VISTA_PREVIA_MIN} minutes`)
+    .run();
+}
+
 // ---------- Pedidos de vinculación por mail ----------
 
 export async function pedirVinculo(

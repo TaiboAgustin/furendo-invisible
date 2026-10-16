@@ -30,9 +30,10 @@ type UsuarioDiscord = { id: string; username: string };
 type AdjuntoDiscord = { url: string; filename: string; size: number; content_type?: string };
 
 export type Interaccion = {
-  type: number; // 1 = ping, 2 = comando
+  type: number; // 1 = ping, 2 = comando, 3 = botón
   data?: {
     name: string;
+    custom_id?: string; // en los botones
     // Con subcomandos, el primero trae sus propias opciones adentro.
     options?: { name: string; value?: unknown; type?: number; options?: { name: string; value: unknown }[] }[];
     resolved?: { attachments?: Record<string, AdjuntoDiscord> };
@@ -44,31 +45,49 @@ export type Interaccion = {
   token?: string; // para completar una respuesta diferida
 };
 
-type DatosRespuesta = { content?: string; embeds?: Embed[]; flags: number; allowed_mentions: { parse: [] } };
+type DatosRespuesta = {
+  content?: string;
+  embeds?: Embed[];
+  components?: unknown[];
+  flags: number;
+  allowed_mentions: { parse: [] };
+};
 
 export type RespuestaInmediata = { type: 4; data: DatosRespuesta };
+
+/** Reemplaza el mensaje que tenía los botones (los botones desaparecen). */
+type ActualizarMensaje = { type: 7; data: { content: string; embeds: Embed[]; components: [] } };
 
 export type Respuesta =
   | { type: 1 }
   | RespuestaInmediata
   // "Pensando…": Discord da 3 segundos para contestar. Si hay que bajar y reenviar un
-  // archivo, se contesta esto y el resultado se completa después con `trabajo`.
-  | { type: 5; data: { flags: number }; trabajo: () => Promise<RespuestaInmediata> };
+  // archivo o pedirle algo a la IA, se contesta esto y el resultado se completa
+  // después con `trabajo`. El 6 es lo mismo, pero sobre el mensaje con botones.
+  | { type: 5; data: { flags: number }; trabajo: () => Promise<RespuestaInmediata> }
+  | { type: 6; trabajo: () => Promise<RespuestaInmediata> }
+  | ActualizarMensaje;
 
 const EFIMERO = 64;
 
 /** Discord deja a los bots mandar hasta 10 MB por mensaje sin boost en el server. */
 export const MAX_ARCHIVO = 10 * 1024 * 1024;
 
-function responder(contenido: string | Embed): RespuestaInmediata {
+function responder(contenido: string | Embed, components?: unknown[]): RespuestaInmediata {
   return {
     type: 4,
     data: {
       ...(typeof contenido === 'string' ? { content: contenido } : { embeds: [contenido] }),
+      ...(components ? { components } : {}),
       flags: EFIMERO,
       allowed_mentions: { parse: [] },
     },
   };
+}
+
+function actualizar(r: RespuestaInmediata): ActualizarMensaje {
+  // El contenido vacío es a propósito: si no, queda el texto de la vista previa.
+  return { type: 7, data: { content: r.data.content ?? '', embeds: r.data.embeds ?? [], components: [] } };
 }
 
 // ---------- Lo que el manejador necesita de la base y de los canales ----------
@@ -115,6 +134,12 @@ export type Deps = {
   guardarTalles(participacionId: number, talles: string | null): Promise<void>;
   /** Deja pendiente de confirmación el vínculo de esta cuenta con la persona de ese mail. */
   pedirVinculo(usuario: UsuarioDiscord, mail: string): Promise<ResultadoPedido>;
+  /** Reescribe el texto en tono neutro con IA. */
+  neutralizar(texto: string): Promise<string>;
+  /** Guarda un comando a la espera de que lo confirmen; devuelve su id. */
+  guardarPendiente(discordUserId: string, data: unknown): Promise<string>;
+  /** Lo devuelve y lo borra, solo si es de esa persona y no venció. */
+  tomarPendiente(id: string, discordUserId: string): Promise<unknown | null>;
 };
 
 export type ResultadoPedido = 'pedido' | 'ya-pedido' | 'no-existe' | 'ya-vinculado';
@@ -266,8 +291,91 @@ async function manejarDeseos(i: Interaccion, persona: PersonaBot, deps: Deps): P
   return responder(confirmacion);
 }
 
+// ---------- Tono neutro ----------
+
+/** Comandos cuyo texto sale de quien regala y puede delatarlo por la forma de escribir. */
+const CAMPO_NEUTRO: Partial<Record<NombreComando, string>> = {
+  preguntar: 'mensaje',
+  entregar: 'mensaje',
+  enviado: 'mensaje',
+};
+
+/** Los mismos controles de /entregar, para no mostrar una vista previa de algo que después falla. */
+function errorEntrega(i: Interaccion): string | null {
+  if (!(opcion(i, 'tipo') in TIPOS_REGALO)) return 'Elegí qué tipo de regalo es.';
+  if (!opcion(i, 'contenido')) return 'Falta el contenido del regalo.';
+  const id = opcion(i, 'archivo');
+  const adjunto = id ? i.data?.resolved?.attachments?.[id] : undefined;
+  if (adjunto && adjunto.size > MAX_ARCHIVO) {
+    return 'El archivo pesa más de 10 MB. Subilo a Drive o similar y mandá el link.';
+  }
+  return null;
+}
+
+function vistaPrevia(i: Interaccion, campo: string, usuario: UsuarioDiscord, deps: Deps): Respuesta {
+  const texto = opcion(i, campo);
+  return {
+    type: 5,
+    data: { flags: EFIMERO },
+    trabajo: async () => {
+      let neutro: string;
+      try {
+        neutro = await deps.neutralizar(texto);
+      } catch {
+        return responder(
+          'No pude pasarlo a tono neutro ahora. Probá de nuevo en un rato, o mandalo con tus palabras usando `tono: original`.',
+        );
+      }
+      // Se guarda el comando completo con el texto ya reescrito y marcado como original,
+      // así al confirmar se ejecuta igual que si lo hubieran escrito así.
+      const data = {
+        ...i.data!,
+        options: [
+          ...(i.data!.options ?? []).filter((o) => o.name !== campo && o.name !== 'tono'),
+          { name: campo, value: neutro },
+          { name: 'tono', value: 'original' },
+        ],
+      };
+      const id = await deps.guardarPendiente(usuario.id, data);
+      return responder(
+        [
+          '**Así le va a llegar:**',
+          `>>> ${neutro}`,
+          '',
+          '-# Si no te convence, cancelá y mandalo de nuevo, o con `tono: original` para que vaya con tus palabras.',
+        ].join('\n'),
+        [
+          {
+            type: 1,
+            components: [
+              { type: 2, style: 1, label: 'Enviar', custom_id: `enviar:${id}` },
+              { type: 2, style: 2, label: 'Cancelar', custom_id: `cancelar:${id}` },
+            ],
+          },
+        ],
+      );
+    },
+  };
+}
+
+async function manejarBoton(i: Interaccion, deps: Deps): Promise<Respuesta> {
+  const usuario = i.member?.user ?? i.user;
+  const [accion, id] = (i.data?.custom_id ?? '').split(':');
+  if (!usuario || !id) return actualizar(responder('No entendí ese botón.'));
+
+  const data = (await deps.tomarPendiente(id, usuario.id)) as Interaccion['data'] | null;
+  if (!data) return actualizar(responder('Esta vista previa ya no está: venció o ya la usaste. Mandá el comando de nuevo.'));
+  if (accion !== 'enviar') return actualizar(responder('Listo, no se mandó nada.'));
+
+  const r = await manejarInteraccion({ ...i, type: 2, data }, deps);
+  if (r.type === 4) return actualizar(r);
+  if (r.type === 5) return { type: 6, trabajo: r.trabajo };
+  return actualizar(responder('Algo raro pasó. Mandá el comando de nuevo.'));
+}
+
 export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Respuesta> {
   if (i.type === 1) return { type: 1 };
+  if (i.type === 3) return manejarBoton(i, deps);
   if (i.type !== 2 || !i.data) return responder('No entendí ese pedido.');
 
   const usuario = i.member?.user ?? i.user;
@@ -314,6 +422,13 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
   const ctx = await deps.contexto(persona.id);
   if (ctx === 'sin-sortear') return responder('Todavía no se hizo el sorteo. Cuando esté, te aviso por privado.');
   if (!ctx) return responder('No estás en ningún amigo invisible en curso.');
+
+  const campo = CAMPO_NEUTRO[comando];
+  if (campo && opcion(i, campo) && opcion(i, 'tono') !== 'original') {
+    const error = comando === 'entregar' ? errorEntrega(i) : null;
+    if (error) return responder(error);
+    return vistaPrevia(i, campo, usuario, deps);
+  }
 
   switch (comando) {
     case 'mi-amigo': {
@@ -378,14 +493,11 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
       const tipo = opcion(i, 'tipo') as TipoRegalo;
       const contenido = opcion(i, 'contenido');
       const mensaje = opcion(i, 'mensaje') || null;
-      if (!(tipo in TIPOS_REGALO)) return responder('Elegí qué tipo de regalo es.');
-      if (!contenido) return responder('Falta el contenido del regalo.');
+      const error = errorEntrega(i);
+      if (error) return responder(error);
 
       const idAdjunto = opcion(i, 'archivo');
       const adjunto = idAdjunto ? i.data.resolved?.attachments?.[idAdjunto] : undefined;
-      if (adjunto && adjunto.size > MAX_ARCHIVO) {
-        return responder('El archivo pesa más de 10 MB. Subilo a Drive o similar y mandá el link.');
-      }
 
       const entregar = async (archivo?: Archivo): Promise<RespuestaInmediata> => {
         const extraMail = tipo === 'steam' ? `\n\nPara activarla: ${linkActivarSteam(contenido)}` : '';
