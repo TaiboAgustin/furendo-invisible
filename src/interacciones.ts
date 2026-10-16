@@ -3,11 +3,14 @@
 // ve quien usó el comando), así nada se filtra si alguien lo usa en un canal.
 
 import type { Contenido, Destinatario, ResultadoAviso } from './avisos.ts';
-import { MAX_DESEOS, TIPOS_REGALO, type NombreComando, type TipoRegalo } from './comandos.ts';
+import { MAX_DESEOS, PRENDAS, TIPOS_REGALO, type NombreComando, type Prenda, type TipoRegalo } from './comandos.ts';
+import { actualizarTalles } from './talles.ts';
 import {
   NARANJA,
   embedDeseos,
   embedDeseosActualizados,
+  embedTalles,
+  embedTallesActualizados,
   embedEnCamino,
   embedPregunta,
   embedRecibido,
@@ -109,6 +112,7 @@ export type Deps = {
   /** El evento en armado o sorteado en el que participa, con su lista de deseos. */
   participacion(personaId: number): Promise<Participacion | null>;
   guardarDeseos(participacionId: number, deseos: string | null): Promise<void>;
+  guardarTalles(participacionId: number, talles: string | null): Promise<void>;
   /** Deja pendiente de confirmación el vínculo de esta cuenta con la persona de ese mail. */
   pedirVinculo(usuario: UsuarioDiscord, mail: string): Promise<ResultadoPedido>;
 };
@@ -120,6 +124,7 @@ export type Participacion = {
   evento: string;
   sorteado: boolean;
   deseos: string | null;
+  talles: string | null;
   /** Solo después del sorteo: a quién avisarle que cambió la lista. */
   regalador: Destinatario | null;
 };
@@ -132,6 +137,7 @@ const AYUDA = [
   '`/unirme` — vincula tu cuenta (usalo en el server). Si no te encuentra, `/unirme mail:` con el mail del formulario.',
   '`/mi-amigo` — te recuerda a quién le regalás y qué le gusta.',
   '`/deseos` — armá tu lista de deseos (`agregar`, `ver`, `borrar`). La ve quien te regala.',
+  '`/talles` — cargá tus talles de remera, buzo, pantalón, zapatillas u otro, por si te regalan ropa.',
   '`/preguntar` — le manda una pregunta a tu amigo invisible sin decir quién sos.',
   '`/responder` — le contesta a quien te regala.',
   '`/direccion` — la dirección para mandarle el regalo.',
@@ -163,6 +169,50 @@ function subcomando(i: Interaccion): { nombre: string; opcion: (n: string) => st
       return typeof v === 'string' ? v.trim() : '';
     },
   };
+}
+
+async function manejarTalles(i: Interaccion, persona: PersonaBot, deps: Deps): Promise<RespuestaInmediata> {
+  const p = await deps.participacion(persona.id);
+  if (!p) return responder('No estás anotado en ningún amigo invisible en curso.');
+
+  const borrar = i.data?.options?.find((o) => o.name === 'borrar')?.value === true;
+  const cambios: Partial<Record<Prenda, string>> = {};
+  for (const prenda of Object.keys(PRENDAS) as Prenda[]) {
+    const v = opcion(i, prenda);
+    if (v) cambios[prenda] = v;
+  }
+
+  if (!borrar && Object.keys(cambios).length === 0) {
+    return responder(
+      p.talles
+        ? embedTalles(p.evento, p.talles)
+        : 'Todavía no cargaste talles. Usá `/talles` y elegí remera, buzo, pantalón, zapatillas u otro.',
+    );
+  }
+
+  // Con borrar y talles nuevos a la vez, se empieza de cero con los nuevos.
+  const nuevos = actualizarTalles(borrar ? null : p.talles, cambios);
+  if (nuevos === p.talles) return responder(nuevos ? embedTalles(p.evento, nuevos) : 'No tenías talles cargados.');
+  await deps.guardarTalles(p.id, nuevos);
+
+  let extra = '';
+  if (p.sorteado && p.regalador) {
+    const r = await deps.enviar(p.regalador, {
+      embed: embedTallesActualizados(p.evento, persona.name, nuevos),
+      mail: mailReenvio(
+        p.evento,
+        'Tu amigo invisible actualizó sus talles',
+        nuevos ? `${persona.name}:\n\n${nuevos}` : `${persona.name} borró sus talles.`,
+        '',
+      ),
+    });
+    extra = r.ok ? ' Le avisé a quien te regala.' : ' No le pude avisar a quien te regala, pero lo va a ver con /mi-amigo.';
+  }
+
+  if (!nuevos) return responder(`Listo, borré tus talles.${extra}`);
+  const embed = embedTalles(p.evento, nuevos);
+  embed.footer = { text: `Listo, quedaron guardados.${extra}` };
+  return responder(embed);
 }
 
 async function manejarDeseos(i: Interaccion, persona: PersonaBot, deps: Deps): Promise<RespuestaInmediata> {
@@ -259,6 +309,7 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
 
   // Funciona antes y después del sorteo.
   if (comando === 'deseos') return manejarDeseos(i, persona, deps);
+  if (comando === 'talles') return manejarTalles(i, persona, deps);
 
   const ctx = await deps.contexto(persona.id);
   if (ctx === 'sin-sortear') return responder('Todavía no se hizo el sorteo. Cuando esté, te aviso por privado.');

@@ -136,6 +136,22 @@ export function embedDeseosActualizados(evento: string, quien: string, deseos: s
   };
 }
 
+// ---------- Talles ----------
+
+export function embedTalles(evento: string, talles: string): Embed {
+  return { author: { name: recortar(evento, 256) }, title: 'Tus talles', description: recortar(talles, 4000), color: NARANJA };
+}
+
+export function embedTallesActualizados(evento: string, quien: string, talles: string | null): Embed {
+  return {
+    author: { name: recortar(evento, 256) },
+    title: recortar(`${quien} actualizó sus talles`, 256),
+    description: talles ? recortar(talles, 4000) : 'Los borró por ahora.',
+    color: NARANJA,
+    footer: { text: 'Los tenés siempre a mano con /mi-amigo.' },
+  };
+}
+
 // ---------- Bajas y revelación ----------
 
 /** A quien le regalaba a alguien que se dio de baja: su nuevo amigo invisible. */

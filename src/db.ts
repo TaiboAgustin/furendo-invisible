@@ -491,13 +491,20 @@ export async function rechazarVinculo(db: D1Database, personId: number): Promise
 export async function participacionBot(db: D1Database, personaId: number): Promise<Participacion | null> {
   const p = await db
     .prepare(
-      `SELECT pa.id, pa.wishlist, e.id AS evento_id, e.name AS evento, e.status
+      `SELECT pa.id, pa.wishlist, pa.sizes, e.id AS evento_id, e.name AS evento, e.status
        FROM participants pa JOIN events e ON e.id = pa.event_id
        WHERE pa.person_id = ? AND pa.status = 'activo' AND e.status IN ('borrador', 'sorteado')
        ORDER BY (e.status = 'sorteado') DESC, e.id DESC LIMIT 1`,
     )
     .bind(personaId)
-    .first<{ id: number; wishlist: string | null; evento_id: number; evento: string; status: string }>();
+    .first<{
+      id: number;
+      wishlist: string | null;
+      sizes: string | null;
+      evento_id: number;
+      evento: string;
+      status: string;
+    }>();
   if (!p) return null;
 
   const sorteado = p.status === 'sorteado';
@@ -517,6 +524,7 @@ export async function participacionBot(db: D1Database, personaId: number): Promi
     evento: p.evento,
     sorteado,
     deseos: p.wishlist,
+    talles: p.sizes,
     regalador: regalador
       ? { nombre: regalador.name, email: regalador.email, discordUserId: regalador.discord_user_id }
       : null,
@@ -525,6 +533,10 @@ export async function participacionBot(db: D1Database, personaId: number): Promi
 
 export async function guardarDeseos(db: D1Database, participacionId: number, deseos: string | null): Promise<void> {
   await db.prepare('UPDATE participants SET wishlist = ? WHERE id = ?').bind(deseos, participacionId).run();
+}
+
+export async function guardarTalles(db: D1Database, participacionId: number, talles: string | null): Promise<void> {
+  await db.prepare('UPDATE participants SET sizes = ? WHERE id = ?').bind(talles, participacionId).run();
 }
 
 // ---------- Bajas ----------
