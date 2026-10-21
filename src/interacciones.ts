@@ -373,7 +373,19 @@ async function manejarBoton(i: Interaccion, deps: Deps): Promise<Respuesta> {
   return actualizar(responder('Algo raro pasó. Mandá el comando de nuevo.'));
 }
 
+/**
+ * En un canal del server las respuestas son efímeras (solo las ve quien usó el comando).
+ * En el privado con el bot no hace falta esconderlas: así el comando y la respuesta
+ * quedan en el historial y no desaparecen al recargar Discord.
+ */
 export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Respuesta> {
+  const r = await responderA(i, deps);
+  if (i.guild_id) return r;
+  if (r.type === 4 || r.type === 5) return { ...r, data: { ...r.data, flags: r.data.flags & ~EFIMERO } } as Respuesta;
+  return r;
+}
+
+async function responderA(i: Interaccion, deps: Deps): Promise<Respuesta> {
   if (i.type === 1) return { type: 1 };
   if (i.type === 3) return manejarBoton(i, deps);
   if (i.type !== 2 || !i.data) return responder('No entendí ese pedido.');
