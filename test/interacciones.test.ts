@@ -126,9 +126,27 @@ const comando = (
 function texto(r: Respuesta): string {
   assert.equal(r.type, 4);
   if (r.type !== 4) return '';
-  assert.equal(r.data.flags, 64, 'toda respuesta tiene que ser efímera');
   return [r.data.content, ...(r.data.embeds ?? []).flatMap((e) => [e.title, e.description])].filter(Boolean).join(' ');
 }
+
+test('en un canal del server todo es efímero; en el privado con el bot queda en el historial', async () => {
+  const comandos: [string, string | undefined][] = [
+    ['mi-amigo', undefined],
+    ['direccion', undefined],
+    ['ayuda', undefined],
+  ];
+  for (const [c, m] of comandos) {
+    const enServer = await manejarInteraccion(comando(c, m, true), deps().d);
+    const enPrivado = await manejarInteraccion(comando(c, m, false), deps().d);
+    assert.equal(enServer.type === 4 && enServer.data.flags, 64, `/${c} en el server tiene que ser efímero`);
+    assert.equal(enPrivado.type === 4 && enPrivado.data.flags, 0, `/${c} en privado tiene que quedar`);
+  }
+  // La vista previa del tono neutro sigue la misma regla.
+  const previaServer = await manejarInteraccion(comando('preguntar', 'hola', true), deps().d);
+  const previaPrivado = await manejarInteraccion(comando('preguntar', 'hola', false), deps().d);
+  assert.equal(previaServer.type === 5 && previaServer.data.flags, 64);
+  assert.equal(previaPrivado.type === 5 && previaPrivado.data.flags, 0);
+});
 
 test('responde el ping de Discord', async () => {
   assert.deepEqual(await manejarInteraccion({ type: 1 }, deps().d), { type: 1 });
@@ -205,7 +223,7 @@ test('/entregar con archivo contesta "pensando" y después reenvía el archivo',
   assert.equal(r.type, 5);
   assert.equal(enviados.length, 0, 'todavía no mandó nada');
   if (r.type !== 5) return;
-  assert.equal(r.data.flags, 64);
+  assert.equal(r.data.flags, 0, 'en privado, el "pensando…" y su resultado quedan en el historial');
   const final = await r.trabajo();
   assert.match(texto(final), /Beto ya tiene tu regalo/);
   assert.equal(enviados[0].archivo, 'entrada.pdf');
@@ -413,7 +431,6 @@ const boton = (customId: string, userId = '111'): Interaccion => ({
 async function vistaPrevia(r: Respuesta) {
   assert.equal(r.type, 5, 'primero contesta "pensando…"');
   if (r.type !== 5) throw new Error();
-  assert.equal(r.data.flags, 64);
   const final = await r.trabajo();
   const botones = (final.data.components?.[0] as { components: { custom_id: string; label: string }[] } | undefined)
     ?.components;
