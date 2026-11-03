@@ -104,6 +104,20 @@ export const COMANDOS = [
         ],
       },
       { type: SUBCOMANDO, name: 'ver', description: 'Muestra tu lista de deseos' },
+      {
+        type: SUBCOMANDO,
+        name: 'quitar',
+        description: 'Saca una cosa de tu lista (elegila con las flechas y Enter)',
+        options: [
+          {
+            type: TEXTO,
+            name: 'item',
+            description: 'Qué querés sacar de tu lista',
+            required: true,
+            autocomplete: true,
+          },
+        ],
+      },
       { type: SUBCOMANDO, name: 'borrar', description: 'Vacía tu lista para empezar de nuevo' },
     ],
   },

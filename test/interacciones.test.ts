@@ -519,6 +519,84 @@ test('/entregar sin mensaje no necesita vista previa', async () => {
   assert.equal(r.type, 4);
 });
 
+// ---------- /deseos quitar ----------
+
+const listaAgus = '• el alpine de colapinto\n• una webcam\n• una funda para la switch';
+
+const autocompletar = (escrito: string, enServer = false): Interaccion => ({
+  type: 4,
+  data: {
+    name: 'deseos',
+    options: [{ type: 1, name: 'quitar', options: [{ name: 'item', value: escrito, focused: true }] }],
+  },
+  ...(enServer ? { member: { user: { id: '111', username: 'ana' } }, guild_id: '9' } : { user: { id: '111', username: 'ana' } }),
+});
+
+test('el autocompletado de /deseos quitar sugiere los ítems de tu lista, filtrados por lo escrito', async () => {
+  const { d } = deps({ participacion: participacion({ deseos: listaAgus }) });
+  const todas = await manejarInteraccion(autocompletar(''), d);
+  assert.deepEqual(todas, {
+    type: 8,
+    data: {
+      choices: [
+        { name: 'el alpine de colapinto', value: '0' },
+        { name: 'una webcam', value: '1' },
+        { name: 'una funda para la switch', value: '2' },
+      ],
+    },
+  });
+  const filtradas = await manejarInteraccion(autocompletar('web', true), d);
+  assert.deepEqual(filtradas, { type: 8, data: { choices: [{ name: 'una webcam', value: '1' }] } });
+});
+
+test('el autocompletado no sugiere nada a quien no está anotado', async () => {
+  assert.deepEqual(await manejarInteraccion(autocompletar(''), deps({ persona: false }).d), { type: 8, data: { choices: [] } });
+  assert.deepEqual(await manejarInteraccion(autocompletar(''), deps({ participacion: null }).d), {
+    type: 8,
+    data: { choices: [] },
+  });
+});
+
+test('/deseos quitar saca el ítem elegido y, después del sorteo, le avisa a quien regala', async () => {
+  const { d, deseosGuardados, enviados } = deps({
+    participacion: participacion({
+      deseos: listaAgus,
+      sorteado: true,
+      regalador: { nombre: 'Caro', discordUserId: '333', email: null },
+    }),
+  });
+  const i: Interaccion = {
+    type: 2,
+    data: { name: 'deseos', options: [{ type: 1, name: 'quitar', options: [{ name: 'item', value: '1' }] }] },
+    user: { id: '111', username: 'ana' },
+  };
+  const r = await manejarInteraccion(i, d);
+  assert.deepEqual(deseosGuardados, ['• el alpine de colapinto\n• una funda para la switch']);
+  assert.equal(r.type, 4);
+  if (r.type === 4) assert.match(r.data.embeds![0].footer!.text, /Saqué "una webcam"\. Le avisé a quien te regala\./);
+  assert.equal(enviados[0].a, 'Caro');
+  assert.doesNotMatch(enviados[0].descripcion!, /webcam/);
+});
+
+test('/deseos quitar con algo que no está, o con la lista vacía, no toca nada', async () => {
+  const quitar = (value: string): Interaccion => ({
+    type: 2,
+    data: { name: 'deseos', options: [{ type: 1, name: 'quitar', options: [{ name: 'item', value }] }] },
+    user: { id: '111', username: 'ana' },
+  });
+  const conLista = deps({ participacion: participacion({ deseos: listaAgus }) });
+  assert.match(texto(await manejarInteraccion(quitar('una bici'), conLista.d)), /No encontré eso/);
+  assert.match(texto(await manejarInteraccion(quitar('7'), conLista.d)), /No encontré eso/);
+  assert.deepEqual(conLista.deseosGuardados, []);
+
+  const vacia = deps();
+  assert.match(texto(await manejarInteraccion(quitar('0'), vacia.d)), /está vacía/);
+
+  const ultima = deps({ participacion: participacion({ deseos: '• una webcam' }) });
+  assert.match(texto(await manejarInteraccion(quitar('0'), ultima.d)), /Saqué "una webcam"\. Tu lista quedó vacía/);
+  assert.deepEqual(ultima.deseosGuardados, [null]);
+});
+
 test('todos los comandos definidos tienen manejador', async () => {
   for (const c of COMANDOS) {
     const r = texto(await manejarInteraccion(comando(c.name, 'x', false, [{ name: 'tono', value: 'original' }]), deps().d));

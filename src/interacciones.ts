@@ -5,6 +5,7 @@
 import type { Contenido, Destinatario, ResultadoAviso } from './avisos.ts';
 import { MAX_DESEOS, PRENDAS, TIPOS_REGALO, type NombreComando, type Prenda, type TipoRegalo } from './comandos.ts';
 import { actualizarTalles } from './talles.ts';
+import { buscarItem, quitarItem, sugerenciasDeseos } from './deseos.ts';
 import {
   NARANJA,
   embedDeseos,
@@ -35,7 +36,13 @@ export type Interaccion = {
     name: string;
     custom_id?: string; // en los botones
     // Con subcomandos, el primero trae sus propias opciones adentro.
-    options?: { name: string; value?: unknown; type?: number; options?: { name: string; value: unknown }[] }[];
+    options?: {
+      name: string;
+      value?: unknown;
+      type?: number;
+      focused?: boolean; // en el autocompletado: la opción que se está escribiendo
+      options?: { name: string; value: unknown; focused?: boolean }[];
+    }[];
     resolved?: { attachments?: Record<string, AdjuntoDiscord> };
   };
   user?: UsuarioDiscord; // en privado
@@ -66,7 +73,9 @@ export type Respuesta =
   // después con `trabajo`. El 6 es lo mismo, pero sobre el mensaje con botones.
   | { type: 5; data: { flags: number }; trabajo: () => Promise<RespuestaInmediata> }
   | { type: 6; trabajo: () => Promise<RespuestaInmediata> }
-  | ActualizarMensaje;
+  | ActualizarMensaje
+  // Sugerencias del autocompletado (la lista que se recorre con flechas y Enter).
+  | { type: 8; data: { choices: { name: string; value: string }[] } };
 
 const EFIMERO = 64;
 
@@ -161,7 +170,7 @@ const AYUDA = [
   '',
   '`/unirme` — vincula tu cuenta (usalo en el server). Si no te encuentra, `/unirme mail:` con el mail del formulario.',
   '`/mi-amigo` — te recuerda a quién le regalás y qué le gusta.',
-  '`/deseos` — armá tu lista de deseos (`agregar`, `ver`, `borrar`). La ve quien te regala.',
+  '`/deseos` — armá tu lista de deseos (`agregar`, `ver`, `quitar`, `borrar`). La ve quien te regala.',
   '`/talles` — cargá tus talles de remera, buzo, pantalón, zapatillas u otro, por si te regalan ropa.',
   '`/preguntar` — le manda una pregunta a tu amigo invisible sin decir quién sos.',
   '`/responder` — le contesta a quien te regala.',
@@ -254,6 +263,7 @@ async function manejarDeseos(i: Interaccion, persona: PersonaBot, deps: Deps): P
   }
 
   let nueva: string | null;
+  let quitado: string | null = null;
   if (sub.nombre === 'agregar') {
     const texto = sub.opcion('texto').replace(/\s*\n+\s*/g, ' ');
     if (!texto) return responder('Escribí qué te gustaría que te regalen.');
@@ -261,11 +271,20 @@ async function manejarDeseos(i: Interaccion, persona: PersonaBot, deps: Deps): P
     if (nueva.length > MAX_DESEOS) {
       return responder(`Tu lista ya es muy larga (máximo ${MAX_DESEOS} caracteres). Usá \`/deseos borrar\` y armala de nuevo más corta.`);
     }
+  } else if (sub.nombre === 'quitar') {
+    if (!p.deseos) return responder('Tu lista está vacía, no hay nada para sacar.');
+    const indice = buscarItem(p.deseos, sub.opcion('item'));
+    if (indice === null) {
+      return responder('No encontré eso en tu lista. Escribí `/deseos quitar` y elegí de las opciones con las flechas y Enter.');
+    }
+    const r = quitarItem(p.deseos, indice);
+    nueva = r.nueva;
+    quitado = r.quitado;
   } else if (sub.nombre === 'borrar') {
     if (!p.deseos) return responder('Tu lista ya estaba vacía.');
     nueva = null;
   } else {
-    return responder('Usá `/deseos agregar`, `/deseos ver` o `/deseos borrar`.');
+    return responder('Usá `/deseos agregar`, `/deseos ver`, `/deseos quitar` o `/deseos borrar`.');
   }
 
   await deps.guardarDeseos(p.id, nueva);
@@ -286,9 +305,24 @@ async function manejarDeseos(i: Interaccion, persona: PersonaBot, deps: Deps): P
     extra = r.ok ? ' Le avisé a quien te regala.' : ' No le pude avisar a quien te regala, pero lo va a ver con /mi-amigo.';
   }
 
-  if (!confirmacion) return responder(`Listo, tu lista quedó vacía.${extra}`);
-  confirmacion.footer = { text: `Listo, quedó guardada.${extra}` };
+  const hecho = quitado ? `Saqué "${quitado}".` : 'Listo, quedó guardada.';
+  if (!confirmacion) return responder(`${quitado ? hecho : 'Listo,'} Tu lista quedó vacía.${extra}`);
+  confirmacion.footer = { text: `${hecho}${extra}` };
   return responder(confirmacion);
+}
+
+/** Autocompletado: por ahora solo lo usa /deseos quitar, para elegir el ítem. */
+async function manejarAutocompletado(i: Interaccion, deps: Deps): Promise<Respuesta> {
+  const vacio: Respuesta = { type: 8, data: { choices: [] } };
+  const usuario = i.member?.user ?? i.user;
+  const sub = i.data?.options?.find((o) => o.type === SUBCOMANDO);
+  if (!usuario || i.data?.name !== 'deseos' || sub?.name !== 'quitar') return vacio;
+
+  const persona = await deps.persona(usuario);
+  const p = persona && (await deps.participacion(persona.id));
+  if (!p) return vacio;
+  const escrito = sub.options?.find((o) => o.focused)?.value;
+  return { type: 8, data: { choices: sugerenciasDeseos(p.deseos, typeof escrito === 'string' ? escrito : '') } };
 }
 
 // ---------- Tono neutro ----------
@@ -388,6 +422,7 @@ export async function manejarInteraccion(i: Interaccion, deps: Deps): Promise<Re
 async function responderA(i: Interaccion, deps: Deps): Promise<Respuesta> {
   if (i.type === 1) return { type: 1 };
   if (i.type === 3) return manejarBoton(i, deps);
+  if (i.type === 4) return manejarAutocompletado(i, deps);
   if (i.type !== 2 || !i.data) return responder('No entendí ese pedido.');
 
   const usuario = i.member?.user ?? i.user;
